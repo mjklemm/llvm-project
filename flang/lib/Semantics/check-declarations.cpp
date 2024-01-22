@@ -317,15 +317,13 @@ void CheckHelper::Check(const Symbol &symbol) {
       // are not pertinent to the characteristics of the procedure.
       // Restrictions on entities in pure procedure interfaces don't need
       // enforcement.
-    } else {
-      if (IsSaved(symbol)) {
-        if (IsInitialized(symbol)) {
-          messages_.Say(
-              "A pure subprogram may not initialize a variable"_err_en_US);
-        } else {
-          messages_.Say(
-              "A pure subprogram may not have a variable with the SAVE attribute"_err_en_US);
-        }
+    } else if (!FindCommonBlockContaining(symbol) && IsSaved(symbol)) {
+      if (IsInitialized(symbol)) {
+        messages_.Say(
+            "A pure subprogram may not initialize a variable"_err_en_US);
+      } else {
+        messages_.Say(
+            "A pure subprogram may not have a variable with the SAVE attribute"_err_en_US);
       }
     }
     if (symbol.attrs().test(Attr::VOLATILE) &&
@@ -571,6 +569,12 @@ void CheckHelper::CheckValue(
   if (evaluate::IsAssumedRank(symbol)) {
     messages_.Say(
         "VALUE attribute may not apply to an assumed-rank array"_err_en_US);
+  }
+  if (context_.ShouldWarn(common::UsageWarning::Portability) &&
+      IsAssumedLengthCharacter(symbol)) {
+    // F'2008 feature not widely implemented
+    messages_.Say(
+        "VALUE attribute on assumed-length CHARACTER may not be portable"_port_en_US);
   }
 }
 
