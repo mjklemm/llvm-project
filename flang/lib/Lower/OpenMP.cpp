@@ -3328,7 +3328,7 @@ genTeamsOp(Fortran::lower::AbstractConverter &converter,
 
 static mlir::omp::DistributeOp
 genDistributeOp(Fortran::lower::AbstractConverter &converter,
-                Fortran::lower::pft::Evaluation &eval,
+                Fortran::lower::pft::Evaluation &eval, bool genNested,
                 mlir::Location currentLocation,
                 const Fortran::parser::OmpClauseList &clauseList,
                 bool outerCombined = false) {
@@ -3338,7 +3338,7 @@ genDistributeOp(Fortran::lower::AbstractConverter &converter,
   // ...
 
   return genOpWithBody<mlir::omp::DistributeOp>(
-      converter, eval, currentLocation, outerCombined, &clauseList);
+      converter, eval, genNested, currentLocation, outerCombined, &clauseList);
 }
 
 /// Extract the list of function and variable symbols affected by the given
@@ -3723,8 +3723,8 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
     if (llvm::omp::allDistributeSet.test(ompDirective)) {
       validDirective = true;
       bool outerCombined = llvm::omp::topDistributeSet.test(ompDirective);
-      genDistributeOp(converter, eval, currentLocation, loopOpClauseList,
-                      outerCombined);
+      genDistributeOp(converter, eval, /*genNested=*/false, currentLocation,
+                      loopOpClauseList, outerCombined);
     }
     if ((llvm::omp::allParallelSet & llvm::omp::loopConstructSet)
             .test(ompDirective)) {
@@ -3838,8 +3838,7 @@ genOMP(Fortran::lower::AbstractConverter &converter,
     break;
   case llvm::omp::Directive::OMPD_teams:
     genTeamsOp(converter, eval, /*genNested=*/true, currentLocation,
-               beginClauseList,
-               /*outerCombined=*/false);
+               beginClauseList, /*outerCombined=*/false);
     break;
   case llvm::omp::Directive::OMPD_workshare:
     TODO(currentLocation, "Workshare construct");
