@@ -948,24 +948,22 @@ void X86AsmPrinter::LowerASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
 
 void X86AsmPrinter::LowerPATCHABLE_OP(const MachineInstr &MI,
                                       X86MCInstLower &MCIL) {
-  // PATCHABLE_OP minsize, opcode, operands
+  // PATCHABLE_OP minsize
 
   NoAutoPaddingScope NoPadScope(*OutStreamer);
 
-  unsigned MinSize = MI.getOperand(0).getImm();
-  unsigned Opcode = MI.getOperand(1).getImm();
-  // Opcode PATCHABLE_OP is a special case: there is no instruction to wrap,
-  // simply emit a nop of size MinSize.
-  bool EmptyInst = (Opcode == TargetOpcode::PATCHABLE_OP);
-
-  MCInst MCI;
-  MCI.setOpcode(Opcode);
-  for (auto &MO : drop_begin(MI.operands(), 2))
-    if (auto MaybeOperand = MCIL.LowerMachineOperand(&MI, MO))
-      MCI.addOperand(*MaybeOperand);
+  auto NextMI = std::find_if(std::next(MI.getIterator()),
+                             MI.getParent()->end().getInstrIterator(),
+                             [](auto &II) { return !II.isMetaInstruction(); });
 
   SmallString<256> Code;
-  if (!EmptyInst) {
+  unsigned MinSize = MI.getOperand(0).getImm();
+
+  if (NextMI != MI.getParent()->end()) {
+    // Lower the next MachineInstr to find its byte size.
+    MCInst MCI;
+    MCIL.Lower(&*NextMI, MCI);
+
     SmallVector<MCFixup, 4> Fixups;
     CodeEmitter->encodeInstruction(MCI, Code, Fixups, getSubtargetInfo());
   }
@@ -981,21 +979,12 @@ void X86AsmPrinter::LowerPATCHABLE_OP(const MachineInstr &MI,
       OutStreamer->emitInstruction(
           MCInstBuilder(X86::MOV32rr_REV).addReg(X86::EDI).addReg(X86::EDI),
           *Subtarget);
-    } else if (MinSize == 2 && Opcode == X86::PUSH64r) {
-      // This is an optimization that lets us get away without emitting a nop in
-      // many cases.
-      //
-      // NB! In some cases the encoding for PUSH64r (e.g. PUSH64r %r9) takes two
-      // bytes too, so the check on MinSize is important.
-      MCI.setOpcode(X86::PUSH64rmr);
     } else {
       unsigned NopSize = emitNop(*OutStreamer, MinSize, Subtarget);
       assert(NopSize == MinSize && "Could not implement MinSize!");
       (void)NopSize;
     }
   }
-  if (!EmptyInst)
-    OutStreamer->emitInstruction(MCI, getSubtargetInfo());
 }
 
 // Lower a stackmap of the form:
@@ -1536,6 +1525,15 @@ static void printConstant(const Constant *COp, unsigned BitWidth,
       else
         CS << "?";
     }
+  } else if (auto *CV = dyn_cast<ConstantVector>(COp)) {
+    unsigned EltBits = CV->getType()->getScalarSizeInBits();
+    unsigned E = std::min(BitWidth / EltBits, CV->getNumOperands());
+    assert((BitWidth % EltBits) == 0 && "Element size mismatch");
+    for (unsigned I = 0; I != E; ++I) {
+      if (I != 0)
+        CS << ",";
+      printConstant(CV->getOperand(I), EltBits, CS, PrintZero);
+    }
   } else {
     CS << "?";
   }
@@ -1550,18 +1548,15 @@ static void printZeroUpperMove(const MachineInstr *MI, MCStreamer &OutStreamer,
   CS << X86ATTInstPrinter::getRegisterName(DstOp.getReg()) << " = ";
 
   if (auto *C = X86::getConstantFromPool(*MI, 1)) {
-    if (isa<ConstantInt>(C) || isa<ConstantFP>(C) ||
-        isa<ConstantDataSequential>(C)) {
-      CS << "[";
-      printConstant(C, SclWidth, CS);
-      for (int I = 1, E = VecWidth / SclWidth; I < E; ++I) {
-        CS << ",";
-        printConstant(C, SclWidth, CS, true);
-      }
-      CS << "]";
-      OutStreamer.AddComment(CS.str());
-      return; // early-out
+    CS << "[";
+    printConstant(C, SclWidth, CS);
+    for (int I = 1, E = VecWidth / SclWidth; I < E; ++I) {
+      CS << ",";
+      printConstant(C, SclWidth, CS, true);
     }
+    CS << "]";
+    OutStreamer.AddComment(CS.str());
+    return; // early-out
   }
 
   // We didn't find a constant load, fallback to a shuffle mask decode.
