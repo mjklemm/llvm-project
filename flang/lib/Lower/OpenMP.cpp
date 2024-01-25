@@ -3240,11 +3240,14 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
                                                   mlir::omp::DataBoundsType>(
                   converter.getFirOpBuilder(), converter.getCurrentLocation(),
                   converter, dataExv, info);
-        if (fir::unwrapRefType(info.addr.getType()).isa<fir::SequenceType>())
+        if (fir::unwrapRefType(info.addr.getType()).isa<fir::SequenceType>()) {
+          bool dataExvIsAssumedSize =
+              Fortran::semantics::IsAssumedSizeArray(sym.GetUltimate());
           bounds = Fortran::lower::genBaseBoundsOps<mlir::omp::DataBoundsOp,
                                                     mlir::omp::DataBoundsType>(
               converter.getFirOpBuilder(), converter.getCurrentLocation(),
-              converter, dataExv);
+              converter, dataExv, dataExvIsAssumedSize);
+        }
 
         llvm::omp::OpenMPOffloadMappingFlags mapFlag =
             llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_IMPLICIT;
@@ -3375,7 +3378,12 @@ genDistributeOp(Fortran::lower::AbstractConverter &converter,
   // ...
 
   return genOpWithBody<mlir::omp::DistributeOp>(
-      converter, eval, genNested, currentLocation, outerCombined, &clauseList);
+      converter, eval, genNested, currentLocation, outerCombined, &clauseList,
+      /*dist_schedule_static=*/nullptr,
+      /*chunk_size=*/nullptr,
+      /*allocate_vars=*/mlir::ValueRange(),
+      /*allocators_vars=*/mlir::ValueRange(),
+      /*order_val=*/nullptr);
 }
 
 /// Extract the list of function and variable symbols affected by the given
