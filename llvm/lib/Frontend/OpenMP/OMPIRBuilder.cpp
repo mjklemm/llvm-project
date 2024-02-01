@@ -7554,9 +7554,10 @@ OpenMPIRBuilder::createTeams(const LocationDescription &Loc,
   BasicBlock *AllocaBB =
       splitBB(Builder, /*CreateBranch=*/true, "teams.alloca");
 
-  // Push num_teams if generating host fallback function
-  if (!Config.isTargetDevice() &&
-      (NumTeamsLower || NumTeamsUpper || ThreadLimit || IfExpr)) {
+  bool SubClausesPresent =
+      (NumTeamsLower || NumTeamsUpper || ThreadLimit || IfExpr);
+  // Push num_teams
+  if (!Config.isTargetDevice() && SubClausesPresent) {
     assert((NumTeamsLower == nullptr || NumTeamsUpper != nullptr) &&
            "if lowerbound is non-null, then upperbound must also be non-null "
            "for bounds on num_teams");
@@ -7609,46 +7610,45 @@ OpenMPIRBuilder::createTeams(const LocationDescription &Loc,
   OI.ExcludeArgsFromAggregate.push_back(createFakeIntVal(
       Builder, OuterAllocaIP, ToBeDeleted, AllocaIP, "tid", true));
 
-  // Prevent unresolved __kmpc_fork_teams when device linking
-  if (!Config.isTargetDevice()) {
-    OI.PostOutlineCB = [this, Ident,
-                        ToBeDeleted](Function &OutlinedFn) mutable {
-      // The stale call instruction will be replaced with a new call instruction
-      // for runtime call with the outlined function.
+  auto HostPostOutlineCB = [this, Ident,
+                            ToBeDeleted](Function &OutlinedFn) mutable {
+    // The stale call instruction will be replaced with a new call instruction
+    // for runtime call with the outlined function.
 
-      assert(OutlinedFn.getNumUses() == 1 &&
-             "there must be a single user for the outlined function");
-      CallInst *StaleCI = cast<CallInst>(OutlinedFn.user_back());
-      ToBeDeleted.push(StaleCI);
+    assert(OutlinedFn.getNumUses() == 1 &&
+           "there must be a single user for the outlined function");
+    CallInst *StaleCI = cast<CallInst>(OutlinedFn.user_back());
+    ToBeDeleted.push(StaleCI);
 
-      assert((OutlinedFn.arg_size() == 2 || OutlinedFn.arg_size() == 3) &&
-             "Outlined function must have two or three arguments only");
+    assert((OutlinedFn.arg_size() == 2 || OutlinedFn.arg_size() == 3) &&
+           "Outlined function must have two or three arguments only");
 
-      bool HasShared = OutlinedFn.arg_size() == 3;
+    bool HasShared = OutlinedFn.arg_size() == 3;
 
-      OutlinedFn.getArg(0)->setName("global.tid.ptr");
-      OutlinedFn.getArg(1)->setName("bound.tid.ptr");
-      if (HasShared)
-        OutlinedFn.getArg(2)->setName("data");
+    OutlinedFn.getArg(0)->setName("global.tid.ptr");
+    OutlinedFn.getArg(1)->setName("bound.tid.ptr");
+    if (HasShared)
+      OutlinedFn.getArg(2)->setName("data");
 
-      // Call to the runtime function for teams in the current function.
-      assert(StaleCI && "Error while outlining - no CallInst user found for "
-                        "the outlined function.");
-      Builder.SetInsertPoint(StaleCI);
-      SmallVector<Value *> Args = {
-          Ident, Builder.getInt32(StaleCI->arg_size() - 2), &OutlinedFn};
-      if (HasShared)
-        Args.push_back(StaleCI->getArgOperand(2));
-      Builder.CreateCall(getOrCreateRuntimeFunctionPtr(
-                             omp::RuntimeFunction::OMPRTL___kmpc_fork_teams),
-                         Args);
-
-      while (!ToBeDeleted.empty()) {
-        ToBeDeleted.top()->eraseFromParent();
-        ToBeDeleted.pop();
-      }
-    };
+    // Call to the runtime function for teams in the current function.
+    assert(StaleCI && "Error while outlining - no CallInst user found for the "
+                      "outlined function.");
+    Builder.SetInsertPoint(StaleCI);
+    SmallVector<Value *> Args = {
+        Ident, Builder.getInt32(StaleCI->arg_size() - 2), &OutlinedFn};
+    if (HasShared)
+      Args.push_back(StaleCI->getArgOperand(2));
+    Builder.CreateCall(getOrCreateRuntimeFunctionPtr(
+                           omp::RuntimeFunction::OMPRTL___kmpc_fork_teams),
+                       Args);
+    while (!ToBeDeleted.empty()) {
+      ToBeDeleted.top()->eraseFromParent();
+      ToBeDeleted.pop();
+    }
   };
+
+  if (!Config.isTargetDevice())
+    OI.PostOutlineCB = HostPostOutlineCB;
 
   addOutlineInfo(std::move(OI));
 
