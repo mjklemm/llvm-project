@@ -519,6 +519,9 @@ enum class IncDecOp {
 
 template <typename T, IncDecOp Op, PushVal DoPush>
 bool IncDecHelper(InterpState &S, CodePtr OpPC, const Pointer &Ptr) {
+  if (Ptr.isDummy())
+    return false;
+
   const T &Value = Ptr.deref<T>();
   T Result;
 
@@ -1521,6 +1524,9 @@ bool SubOffset(InterpState &S, CodePtr OpPC) {
 template <ArithOp Op>
 static inline bool IncDecPtrHelper(InterpState &S, CodePtr OpPC,
                                    const Pointer &Ptr) {
+  if (Ptr.isDummy())
+    return false;
+
   using OneT = Integral<8, false>;
 
   const Pointer &P = Ptr.deref<Pointer>();
@@ -2014,8 +2020,11 @@ inline bool Invalid(InterpState &S, CodePtr OpPC) {
 /// Same here, but only for casts.
 inline bool InvalidCast(InterpState &S, CodePtr OpPC, CastKind Kind) {
   const SourceLocation &Loc = S.Current->getLocation(OpPC);
-  S.FFDiag(Loc, diag::note_constexpr_invalid_cast)
-      << static_cast<unsigned>(Kind) << S.Current->getRange(OpPC);
+
+  // FIXME: Support diagnosing other invalid cast kinds.
+  if (Kind == CastKind::Reinterpret)
+    S.FFDiag(Loc, diag::note_constexpr_invalid_cast)
+        << static_cast<unsigned>(Kind) << S.Current->getRange(OpPC);
   return false;
 }
 
