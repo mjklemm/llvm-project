@@ -779,21 +779,19 @@ allocReductionVars(T loop, llvm::IRBuilderBase &builder,
                    llvm::OpenMPIRBuilder::InsertPointTy &allocaIP,
                    SmallVector<omp::ReductionDeclareOp> &reductionDecls,
                    DenseMap<Value, llvm::Value *> &reductionVariableMap) {
-  unsigned numReductions = loop.getNumReductionVars();
-  if (numReductions != 0) {
-    llvm::IRBuilderBase::InsertPointGuard guard(builder);
-    llvm::OpenMPIRBuilder::InsertPointTy curIP = builder.saveIP();
+  llvm::IRBuilderBase::InsertPointGuard guard(builder);
+  if (!ompBuilder.RIManager.hasPrivateVarAllocaIP())
+    ompBuilder.RIManager.setPrivateVarAllocaIP(allocaIP);
+  builder.restoreIP(ompBuilder.RIManager.getPrivateVarAllocaIP());
 
-    if (!ompBuilder.RIManager.hasPrivateVarAllocaIP())
-      ompBuilder.RIManager.setPrivateVarAllocaIP(allocaIP);
-    builder.restoreIP(ompBuilder.RIManager.getPrivateVarAllocaIP());
-    for (unsigned i = 0; i < numReductions; ++i) {
-      llvm::Value *var = ompBuilder.RIManager.allocatePrivateReductionVar(
-          builder, allocaIP,
-          moduleTranslation.convertType(reductionDecls[i].getType()));
-      reductionVariableMap.try_emplace(loop.getReductionVars()[i], var);
-    }
-    builder.restoreIP(curIP);
+  unsigned numReductions = loop.getNumReductionVars();
+  auto args = loop.getRegion().getArguments().take_back(numReductions);
+  for (unsigned i = 0; i < numReductions; ++i) {
+    llvm::Value *var = ompBuilder.RIManager.allocatePrivateReductionVar(
+        builder, allocaIP,
+        moduleTranslation.convertType(reductionDecls[i].getType()));
+    moduleTranslation.mapValue(args[i], var);
+    reductionVariableMap.try_emplace(loop.getReductionVars()[i], var);
   }
 }
 
