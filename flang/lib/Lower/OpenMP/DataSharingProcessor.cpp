@@ -26,12 +26,20 @@ namespace omp {
 void DataSharingProcessor::processStep1() {
   collectSymbolsForPrivatization();
   collectDefaultSymbols();
+}
+
+void DataSharingProcessor::processStep2() {
+  if (privatizationDone)
+    return;
+
   privatize();
   defaultPrivatize();
   insertBarrier();
+
+  privatizationDone = true;
 }
 
-void DataSharingProcessor::processStep2(mlir::Operation *op, bool isLoop) {
+void DataSharingProcessor::processStep3(mlir::Operation *op, bool isLoop) {
   insPt = firOpBuilder.saveInsertionPoint();
   copyLastPrivatize(op);
   firOpBuilder.restoreInsertionPoint(insPt);
