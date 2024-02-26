@@ -258,22 +258,12 @@ struct CounterMappingRegion {
   /// Parameters used for Modified Condition/Decision Coverage
   mcdc::Parameters MCDCParams;
 
-  template <class MaybeConstInnerParameters, class MaybeConstMCDCParameters>
-  static auto &getParams(MaybeConstMCDCParameters &MCDCParams) {
-    using InnerParameters =
-        typename std::remove_const<MaybeConstInnerParameters>::type;
-    MaybeConstInnerParameters *Params =
-        std::get_if<InnerParameters>(&MCDCParams);
-    assert(Params && "InnerParameters unavailable");
-    return *Params;
-  }
-
   const auto &getDecisionParams() const {
-    return getParams<const mcdc::DecisionParameters>(MCDCParams);
+    return mcdc::getParams<const mcdc::DecisionParameters>(MCDCParams);
   }
 
   const auto &getBranchParams() const {
-    return getParams<const mcdc::BranchParameters>(MCDCParams);
+    return mcdc::getParams<const mcdc::BranchParameters>(MCDCParams);
   }
 
   unsigned FileID = 0;
@@ -559,6 +549,55 @@ public:
     return OS.str();
   }
 };
+
+namespace mcdc {
+/// Compute TestVector Indices "TVIdx" from the Conds graph.
+///
+/// Clang CodeGen handles the bitmap index based on TVIdx.
+/// llvm-cov reconstructs conditions from TVIdx.
+///
+/// For each leaf "The final decision",
+/// - TVIdx should be unique.
+/// - TVIdx has the Width.
+///   - The width represents the number of possible paths.
+///   - The minimum width is 1 "deterministic".
+/// - The order of leaves are sorted by Width DESC. It expects
+///   latter TVIdx(s) (with Width=1) could be pruned and altered to
+///   other simple branch conditions.
+///
+class TVIdxBuilder {
+public:
+  struct MCDCNode {
+    int InCount = 0; /// Reference count; temporary use
+    int Width;       /// Number of accumulated paths (>= 1)
+    ConditionIDs NextIDs;
+  };
+
+#ifndef NDEBUG
+  /// This is no longer needed after the assignment.
+  /// It may be used in assert() for reconfirmation.
+  SmallVector<MCDCNode> SavedNodes;
+#endif
+
+  /// Output: Index for TestVectors bitmap (These are not CondIDs)
+  SmallVector<std::array<int, 2>> Indices;
+
+  /// Output: The number of test vectors.
+  /// Error with HardMaxTVs if the number has exploded.
+  int NumTestVectors;
+
+  /// Hard limit of test vectors
+  static constexpr auto HardMaxTVs =
+      std::numeric_limits<decltype(NumTestVectors)>::max();
+
+public:
+  /// Calculate and assign Indices
+  /// \param NextIDs The list of {FalseID, TrueID} indexed by ID
+  ///        The first element [0] should be the root node.
+  /// \param Offset Offset of index to final decisions.
+  TVIdxBuilder(const SmallVectorImpl<ConditionIDs> &NextIDs, int Offset = 0);
+};
+} // namespace mcdc
 
 /// A Counter mapping context is used to connect the counters, expressions
 /// and the obtained counter values.
