@@ -400,7 +400,7 @@ def FunctionAttr : Pass<"function-attr", "mlir::func::FuncOp"> {
 def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir::func::FuncOp"> {
   let summary = "Map `DO CONCURRENT` loops to OpenMP worksharing loops.";
 
-  let description = [{ This is an experimental pass to map `DO CONCURRENR` loops
+  let description = [{ This is an experimental pass to map `DO CONCURRENT` loops
      to their correspnding equivalent OpenMP worksharing constructs.
 
      For now the following is supported:

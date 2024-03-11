@@ -70,13 +70,39 @@ public:
     // loop header preparation/allocation operations.
 
     // Clone the LB, UB, step defining ops inside the parallel region.
+    mlir::Operation* lbOp = doLoop.getLowerBound().getDefiningOp();
+    mlir::Operation* ubOp = doLoop.getUpperBound().getDefiningOp();
+    mlir::Operation* stepOp = doLoop.getStep().getDefiningOp();
+
+    if (lbOp == nullptr || ubOp == nullptr || stepOp == nullptr) {
+      return rewriter.notifyMatchFailure(
+          doLoop, "At least one of the loop's LB, UB, or step doesn't have a "
+                  "defining operation.");
+    }
+
+    std::function<bool(mlir::Operation *)> isOpUltimatelyConstant =
+        [&](mlir::Operation *operation) {
+          if (mlir::isa_and_present<mlir::arith::ConstantOp>(operation))
+            return true;
+
+          if (fir::ConvertOp convertOp =
+                  mlir::dyn_cast_if_present<fir::ConvertOp>(operation))
+            return isOpUltimatelyConstant(convertOp.getValue().getDefiningOp());
+
+          return false;
+        };
+
+    if (!isOpUltimatelyConstant(lbOp) || !isOpUltimatelyConstant(ubOp) ||
+        !isOpUltimatelyConstant(stepOp)) {
+      return rewriter.notifyMatchFailure(
+          doLoop, "`do concurrent` conversion is currently only supported for "
+                  "constant LB, UB, and step values.");
+    }
+
     llvm::SmallVector<mlir::Value> lowerBound, upperBound, step;
-    lowerBound.push_back(
-        rewriter.clone(*doLoop.getLowerBound().getDefiningOp())->getResult(0));
-    upperBound.push_back(
-        rewriter.clone(*doLoop.getUpperBound().getDefiningOp())->getResult(0));
-    step.push_back(
-        rewriter.clone(*doLoop.getStep().getDefiningOp())->getResult(0));
+    lowerBound.push_back(rewriter.clone(*lbOp)->getResult(0));
+    upperBound.push_back(rewriter.clone(*ubOp)->getResult(0));
+    step.push_back(rewriter.clone(*stepOp)->getResult(0));
     // ==== TODO (1) End ====
 
     auto wsLoopOp = rewriter.create<mlir::omp::WsLoopOp>(
@@ -127,7 +153,7 @@ public:
       workList.remove(item);
     }
 
-    // For each collected `fir.sotre`, find the target memref's alloca's and
+    // For each collected `fir.store`, find the target memref's alloca's and
     // declare ops.
     llvm::SmallSetVector<mlir::Operation *, 4> declareAndAllocasToClone;
     for (auto storeOp : inductionVarTargetStores) {
