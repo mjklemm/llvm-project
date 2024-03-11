@@ -15,6 +15,7 @@
 #include "llvm/Support/CommandLine.h"
 
 extern llvm::cl::opt<bool> treatIndexAsSection;
+extern llvm::cl::opt<bool> enableDelayedPrivatization;
 
 namespace fir {
 class FirOpBuilder;
@@ -45,7 +46,7 @@ namespace omp {
 
 using DeclareTargetCapturePair =
     std::pair<mlir::omp::DeclareTargetCaptureClause,
-              Fortran::semantics::Symbol>;
+              const Fortran::semantics::Symbol &>;
 
 mlir::omp::MapInfoOp
 createMapInfoOp(fir::FirOpBuilder &builder, mlir::Location loc,
