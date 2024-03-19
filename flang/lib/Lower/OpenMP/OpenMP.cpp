@@ -520,6 +520,7 @@ static void createBodyOfOp(Op &op, OpWithBodyGenInfo &info) {
     if (!info.dsp) {
       tempDsp.emplace(info.converter, *info.clauses, info.eval);
       tempDsp->processStep1();
+      tempDsp->processStep2();
     }
   }
 
@@ -593,11 +594,11 @@ static void createBodyOfOp(Op &op, OpWithBodyGenInfo &info) {
     if (privatize) {
       if (!info.dsp) {
         assert(tempDsp.has_value());
-        tempDsp->processStep2(op, isLoop);
+        tempDsp->processStep3(op, isLoop);
       } else {
         if (isLoop && regionArgs.size() > 0)
           info.dsp->setLoopIV(info.converter.getSymbolAddress(*regionArgs[0]));
-        info.dsp->processStep2(op, isLoop);
+        info.dsp->processStep3(op, isLoop);
       }
     }
   }
@@ -816,8 +817,11 @@ genParallelOp(Fortran::lower::AbstractConverter &converter,
   DataSharingProcessor dsp(converter, clauseList, eval,
                            /*useDelayedPrivatization=*/true, &symTable);
 
-  if (privatize)
+  if (privatize) {
     dsp.processStep1();
+    dsp.processStep2();
+  }
+
 
   const auto &delayedPrivatizationInfo = dsp.getDelayedPrivatizationInfo();
 
@@ -1093,7 +1097,9 @@ static void genBodyOfTargetOp(
     const llvm::SmallVector<mlir::Type> &mapSymTypes,
     const llvm::SmallVector<mlir::Location> &mapSymLocs,
     const llvm::SmallVector<const Fortran::semantics::Symbol *> &mapSymbols,
-    const mlir::Location &currentLocation) {
+    const mlir::Location &currentLocation,
+    const Fortran::parser::OmpClauseList &clauseList,
+    DataSharingProcessor &dsp) {
   assert(mapSymTypes.size() == mapSymLocs.size());
 
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
@@ -1101,6 +1107,8 @@ static void genBodyOfTargetOp(
 
   auto *regionBlock =
       firOpBuilder.createBlock(&region, {}, mapSymTypes, mapSymLocs);
+
+  dsp.processStep2();
 
   // Clones the `bounds` placing them inside the target region and returns them.
   auto cloneBound = [&](mlir::Value bound) {
@@ -1243,7 +1251,8 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
             Fortran::lower::pft::Evaluation &eval, bool genNested,
             mlir::Location currentLocation,
             const Fortran::parser::OmpClauseList &clauseList,
-            llvm::omp::Directive directive, bool outerCombined = false) {
+            llvm::omp::Directive directive, bool outerCombined = false,
+            DataSharingProcessor *dsp = nullptr) {
   Fortran::lower::StatementContext stmtCtx;
   mlir::Value ifClauseOperand, deviceOperand, threadLimitOperand;
   mlir::UnitAttr nowaitAttr;
@@ -1262,9 +1271,7 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
   cp.processDepend(dependTypeOperands, dependOperands);
   cp.processMap(currentLocation, directive, stmtCtx, mapOperands, &mapSymTypes,
                 &mapSymLocs, &mapSymbols);
-
-  cp.processTODO<Fortran::parser::OmpClause::Private,
-                 Fortran::parser::OmpClause::Firstprivate,
+  cp.processTODO<Fortran::parser::OmpClause::Firstprivate,
                  Fortran::parser::OmpClause::IsDevicePtr,
                  Fortran::parser::OmpClause::HasDeviceAddr,
                  Fortran::parser::OmpClause::InReduction,
@@ -1272,6 +1279,10 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
                  Fortran::parser::OmpClause::UsesAllocators,
                  Fortran::parser::OmpClause::Defaultmap>(
       currentLocation, llvm::omp::Directive::OMPD_target);
+
+  DataSharingProcessor localDSP(converter, clauseList, eval);
+  DataSharingProcessor &actualDSP = dsp ? *dsp : localDSP;
+  actualDSP.processStep1();
 
   // Process host-only clauses.
   if (!llvm::cast<mlir::omp::OffloadModuleInterface>(*converter.getModuleOp())
@@ -1283,9 +1294,14 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
 
   // 5.8.1 Implicit Data-Mapping Attribute Rules
   // The following code follows the implicit data-mapping rules to map all the
-  // symbols used inside the region that have not been explicitly mapped using
-  // the map clause.
+  // symbols used inside the region that do not have explicit data-environment
+  // attribute clauses (neither data-sharing; e.g. `private`, nor `map`
+  // clauses).
   auto captureImplicitMap = [&](const Fortran::semantics::Symbol &sym) {
+    if (actualDSP.getPrivatizedSymbols().contains(&sym)) {
+      return;
+    }
+
     if (llvm::find(mapSymbols, &sym) == mapSymbols.end()) {
       mlir::Value baseOp = converter.getSymbolAddress(sym);
       if (!baseOp)
@@ -1383,7 +1399,8 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
       /*teams_thread_limit=*/nullptr, /*num_threads=*/nullptr);
 
   genBodyOfTargetOp(converter, semaCtx, eval, genNested, targetOp, mapSymTypes,
-                    mapSymLocs, mapSymbols, currentLocation);
+                    mapSymLocs, mapSymbols, currentLocation, clauseList,
+                    actualDSP);
 
   return targetOp;
 }
@@ -1459,7 +1476,8 @@ genDistributeOp(Fortran::lower::AbstractConverter &converter,
                 Fortran::lower::pft::Evaluation &eval, bool genNested,
                 mlir::Location currentLocation,
                 const Fortran::parser::OmpClauseList &clauseList,
-                bool outerCombined = false) {
+                bool outerCombined = false,
+                DataSharingProcessor *dsp = nullptr) {
   // TODO Process clauses
   // ClauseProcessor cp(converter, clauseList);
   // cp.processAllocate(allocatorOperands, allocateOperands);
@@ -1469,7 +1487,8 @@ genDistributeOp(Fortran::lower::AbstractConverter &converter,
       OpWithBodyGenInfo(converter, semaCtx, currentLocation, eval)
           .setGenNested(genNested)
           .setOuterCombined(outerCombined)
-          .setClauses(&clauseList),
+          .setClauses(&clauseList)
+          .setDataSharingProcessor(dsp),
       /*dist_schedule_static=*/nullptr,
       /*chunk_size=*/nullptr,
       /*allocate_vars=*/mlir::ValueRange(),
@@ -1780,6 +1799,7 @@ createSimdLoop(Fortran::lower::AbstractConverter &converter,
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
   DataSharingProcessor dsp(converter, loopOpClauseList, eval);
   dsp.processStep1();
+  dsp.processStep2();
 
   Fortran::lower::StatementContext stmtCtx;
   mlir::Value scheduleChunkClauseOperand, ifClauseOperand;
@@ -1836,10 +1856,10 @@ static void createWsLoop(Fortran::lower::AbstractConverter &converter,
                          llvm::omp::Directive ompDirective,
                          const Fortran::parser::OmpClauseList &beginClauseList,
                          const Fortran::parser::OmpClauseList *endClauseList,
-                         mlir::Location loc) {
+                         mlir::Location loc, DataSharingProcessor &dsp) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
-  DataSharingProcessor dsp(converter, beginClauseList, eval);
   dsp.processStep1();
+  dsp.processStep2();
 
   Fortran::lower::StatementContext stmtCtx;
   mlir::Value scheduleChunkClauseOperand;
@@ -1962,8 +1982,9 @@ static void createSimdWsLoop(
   // When support for vectorization is enabled, then we need to add handling of
   // if clause. Currently if clause can be skipped because we always assume
   // SIMD length = 1.
+  DataSharingProcessor dsp(converter, beginClauseList, eval);
   createWsLoop(converter, semaCtx, eval, ompDirective, beginClauseList,
-               endClauseList, loc);
+               endClauseList, loc, dsp);
 }
 
 static void genOMP(Fortran::lower::AbstractConverter &converter,
@@ -1992,6 +2013,8 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
   }();
 
   bool validDirective = false;
+  DataSharingProcessor dsp(converter, loopOpClauseList, eval);
+
   if (llvm::omp::topTaskloopSet.test(ompDirective)) {
     validDirective = true;
     TODO(currentLocation, "Taskloop construct");
@@ -2002,7 +2025,7 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
       validDirective = true;
       genTargetOp(converter, semaCtx, eval, /*genNested=*/false,
                   currentLocation, loopOpClauseList, ompDirective,
-                  /*outerCombined=*/true);
+                  /*outerCombined=*/true, &dsp);
     }
     if ((llvm::omp::allTeamsSet & llvm::omp::loopConstructSet)
             .test(ompDirective)) {
@@ -2014,7 +2037,7 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
       validDirective = true;
       bool outerCombined = llvm::omp::topDistributeSet.test(ompDirective);
       genDistributeOp(converter, semaCtx, eval, /*genNested=*/false,
-                      currentLocation, loopOpClauseList, outerCombined);
+                      currentLocation, loopOpClauseList, outerCombined, &dsp);
     }
     if ((llvm::omp::allParallelSet & llvm::omp::loopConstructSet)
             .test(ompDirective)) {
@@ -2045,7 +2068,7 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
     genOpenMPReduction(converter, semaCtx, loopOpClauseList);
   } else {
     createWsLoop(converter, semaCtx, eval, ompDirective, loopOpClauseList,
-                 endClauseList, currentLocation);
+                 endClauseList, currentLocation, dsp);
   }
 }
 
