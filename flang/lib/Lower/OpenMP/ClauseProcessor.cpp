@@ -907,27 +907,37 @@ bool ClauseProcessor::processMap(
 bool ClauseProcessor::processTargetReduction(
     llvm::SmallVector<const Fortran::semantics::Symbol *> &reductionSymbols)
     const {
-  return findRepeatableClause<ClauseTy::Reduction>(
-      [&](const ClauseTy::Reduction *reductionClause,
+  return findRepeatableClause<omp::clause::Reduction>(
+      [&](const omp::clause::Reduction &clause,
           const Fortran::parser::CharBlock &) {
         ReductionProcessor rp;
-        rp.addReductionSym(reductionClause->v, reductionSymbols);
+        rp.addReductionSym(clause, reductionSymbols);
       });
 }
 
 bool ClauseProcessor::processReduction(
     mlir::Location currentLocation,
-    llvm::SmallVectorImpl<mlir::Value> &reductionVars,
-    llvm::SmallVectorImpl<mlir::Attribute> &reductionDeclSymbols,
-    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> *reductionSymbols)
-    const {
+    llvm::SmallVectorImpl<mlir::Value> &outReductionVars,
+    llvm::SmallVectorImpl<mlir::Attribute> &outReductionDeclSymbols,
+    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *>
+        *outReductionSymbols) const {
   return findRepeatableClause<omp::clause::Reduction>(
       [&](const omp::clause::Reduction &clause,
           const Fortran::parser::CharBlock &) {
+        llvm::SmallVector<mlir::Value> reductionVars;
+        llvm::SmallVector<mlir::Attribute> reductionDeclSymbols;
+        llvm::SmallVector<const Fortran::semantics::Symbol *> reductionSymbols;
         ReductionProcessor rp;
         rp.addDeclareReduction(currentLocation, converter, clause,
                                reductionVars, reductionDeclSymbols,
-                               reductionSymbols);
+                               outReductionSymbols ? &reductionSymbols
+                                                   : nullptr);
+        llvm::copy(reductionVars, std::back_inserter(outReductionVars));
+        llvm::copy(reductionDeclSymbols,
+                   std::back_inserter(outReductionDeclSymbols));
+        if (outReductionSymbols)
+          llvm::copy(reductionSymbols,
+                     std::back_inserter(*outReductionSymbols));
       });
 }
 

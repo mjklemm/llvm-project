@@ -1125,14 +1125,11 @@ convertOmpWsloop(
   tempTerminator->eraseFromParent();
   builder.restoreIP(nextInsertionPoint);
 
-  if (!ompBuilder->Config.isGPU())
-    ompBuilder->RIManager.clear();
-
   return success();
 }
 
 static LogicalResult
-convertOmpWsLoop(Operation &opInst, llvm::IRBuilderBase &builder,
+convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
                  LLVM::ModuleTranslation &moduleTranslation) {
   llvm::OpenMPIRBuilder::InsertPointTy redAllocaIP =
     findAllocaInsertPoint(builder, moduleTranslation);
@@ -1140,7 +1137,7 @@ convertOmpWsLoop(Operation &opInst, llvm::IRBuilderBase &builder,
   SmallVector<OwningAtomicReductionGen> owningAtomicReductionGens;
   SmallVector<llvm::OpenMPIRBuilder::ReductionInfo> reductionInfos;
 
-  return convertOmpWsLoop(opInst, builder, moduleTranslation, redAllocaIP,
+  return convertOmpWsloop(opInst, builder, moduleTranslation, redAllocaIP,
                           owningReductionGens, owningAtomicReductionGens,
                           reductionInfos);
 }
@@ -1413,9 +1410,6 @@ convertOmpParallel(Operation &opInst1, llvm::IRBuilderBase &builder,
   builder.restoreIP(
       ompBuilder->createParallel(ompLoc, allocaIP, bodyGenCB, privCB, finiCB,
                                  ifCond, numThreads, pbKind, isCancellable));
-
-  if (!ompBuilder->Config.isGPU())
-    ompBuilder->RIManager.clear();
 
   return bodyGenStatus;
 }
@@ -3330,10 +3324,9 @@ public:
   }
 };
 
-static LogicalResult convertOmpDistributeParallelWsLoop(
-                                                        Operation *op,
-    omp::DistributeOp distribute, omp::ParallelOp parallel,
-    omp::WsLoopOp wsloop, llvm::IRBuilderBase &builder,
+static LogicalResult convertOmpDistributeParallelWsloop(
+    Operation *op, omp::DistributeOp distribute, omp::ParallelOp parallel,
+    omp::WsloopOp wsloop, llvm::IRBuilderBase &builder,
     LLVM::ModuleTranslation &moduleTranslation,
     ConversionDispatchList &dispatchList);
 
@@ -3534,10 +3527,10 @@ convertInternalTargetOp(Operation *op, llvm::IRBuilderBase &builder,
 
   omp::DistributeOp distribute;
   omp::ParallelOp parallel;
-  omp::WsLoopOp wsloop;
+  omp::WsloopOp wsloop;
   // Match composite constructs
   if (matchOpNest(op, distribute, parallel, wsloop)) {
-    return convertOmpDistributeParallelWsLoop(op, distribute, parallel, wsloop,
+    return convertOmpDistributeParallelWsloop(op, distribute, parallel, wsloop,
                                               builder, moduleTranslation,
                                               dispatchList);
   }
@@ -3586,9 +3579,9 @@ public:
 // Implementation converting a nest of operations in a single function. This
 // just overrides the parallel and wsloop dispatches but does the normal
 // lowering for now.
-static LogicalResult convertOmpDistributeParallelWsLoop(
+static LogicalResult convertOmpDistributeParallelWsloop(
     Operation *op, omp::DistributeOp distribute, omp::ParallelOp parallel,
-    omp::WsLoopOp wsloop, llvm::IRBuilderBase &builder,
+    omp::WsloopOp wsloop, llvm::IRBuilderBase &builder,
     LLVM::ModuleTranslation &moduleTranslation,
     ConversionDispatchList &dispatchList) {
 
@@ -3599,25 +3592,22 @@ static LogicalResult convertOmpDistributeParallelWsLoop(
   llvm::OpenMPIRBuilder::InsertPointTy redAllocaIP;
 
   // Convert wsloop alternative implementation
-  ConvertFunctionTy convertWsLoop = [&redAllocaIP, &owningReductionGens,
-                                     &owningAtomicReductionGens,
-                                     &reductionInfos](
-                                        Operation *op,
-                                        llvm::IRBuilderBase &builder,
-                                        LLVM::ModuleTranslation
-                                            &moduleTranslation) {
-    if (!isa<omp::WsLoopOp>(op)) {
-      return std::make_pair(false, failure());
-    }
+  ConvertFunctionTy convertWsloop =
+      [&redAllocaIP, &owningReductionGens, &owningAtomicReductionGens,
+       &reductionInfos](Operation *op, llvm::IRBuilderBase &builder,
+                        LLVM::ModuleTranslation &moduleTranslation) {
+        if (!isa<omp::WsloopOp>(op)) {
+          return std::make_pair(false, failure());
+        }
 
-    LogicalResult result = convertOmpWsLoop(
-        *op, builder, moduleTranslation, redAllocaIP, owningReductionGens,
-        owningAtomicReductionGens, reductionInfos);
-    return std::make_pair(true, result);
-  };
+        LogicalResult result = convertOmpWsloop(
+            *op, builder, moduleTranslation, redAllocaIP, owningReductionGens,
+            owningAtomicReductionGens, reductionInfos);
+        return std::make_pair(true, result);
+      };
 
   // Push the new alternative functions
-  dispatchList.pushConversionFunction(convertWsLoop);
+  dispatchList.pushConversionFunction(convertWsloop);
 
   // Lower the current distribute operation
   LogicalResult result = convertOmpDistribute(*op, builder, moduleTranslation,

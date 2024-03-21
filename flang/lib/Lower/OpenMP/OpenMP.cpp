@@ -1339,7 +1339,7 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
                  Fortran::parser::OmpClause::Defaultmap>(
       currentLocation, llvm::omp::Directive::OMPD_target);
 
-  DataSharingProcessor localDSP(converter, clauseList, eval);
+  DataSharingProcessor localDSP(converter, semaCtx, clauseList, eval);
   DataSharingProcessor &actualDSP = dsp ? *dsp : localDSP;
   actualDSP.processStep1();
 
@@ -1458,8 +1458,7 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
       /*teams_thread_limit=*/nullptr, /*num_threads=*/nullptr);
 
   genBodyOfTargetOp(converter, semaCtx, eval, genNested, targetOp, mapSymTypes,
-                    mapSymLocs, mapSymbols, currentLocation, clauseList,
-                    actualDSP);
+                    mapSymLocs, mapSymbols, currentLocation, actualDSP);
 
   return targetOp;
 }
@@ -2074,7 +2073,7 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
   }();
 
   bool validDirective = false;
-  DataSharingProcessor dsp(converter, loopOpClauseList, eval);
+  DataSharingProcessor dsp(converter, semaCtx, loopOpClauseList, eval);
 
   if (llvm::omp::topTaskloopSet.test(ompDirective)) {
     validDirective = true;

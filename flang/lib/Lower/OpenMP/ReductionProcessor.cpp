@@ -67,17 +67,11 @@ ReductionProcessor::ReductionIdentifier ReductionProcessor::getReductionType(
 }
 
 void ReductionProcessor::addReductionSym(
-    const Fortran::parser::OmpReductionClause &reduction,
+    const omp::clause::Reduction &reduction,
     llvm::SmallVector<const Fortran::semantics::Symbol *> &symbols) {
-  const auto &objectList{std::get<Fortran::parser::OmpObjectList>(reduction.t)};
-
-  for (const Fortran::parser::OmpObject &ompObject : objectList.v) {
-    if (const auto *name{
-            Fortran::parser::Unwrap<Fortran::parser::Name>(ompObject)}) {
-      if (const Fortran::semantics::Symbol * symbol{name->symbol})
-        symbols.push_back(symbol);
-    }
-  }
+  const auto &objectList{std::get<omp::ObjectList>(reduction.t)};
+  llvm::transform(objectList, std::back_inserter(symbols),
+                  [](const Object &object) { return object.id(); });
 }
 
 bool ReductionProcessor::supportedIntrinsicProcReduction(
