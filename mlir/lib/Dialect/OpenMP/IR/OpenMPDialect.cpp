@@ -1342,7 +1342,7 @@ void ParallelOp::build(OpBuilder &builder, OperationState &state,
       /*allocate_vars=*/ValueRange(), /*allocators_vars=*/ValueRange(),
       /*reduction_vars=*/ValueRange(), /*reductions=*/nullptr,
       /*proc_bind_val=*/nullptr, /*private_vars=*/ValueRange(),
-      /*privatizers=*/nullptr);
+      /*privatizers=*/nullptr, /*byref=*/false);
   state.addAttributes(attributes);
 }
 
@@ -1818,7 +1818,8 @@ void WsloopOp::build(OpBuilder &builder, OperationState &state,
         /*linear_step_vars=*/ValueRange(), /*reduction_vars=*/ValueRange(),
         /*reductions=*/nullptr, /*schedule_val=*/nullptr,
         /*schedule_chunk_var=*/nullptr, /*schedule_modifier=*/nullptr,
-        /*simd_modifier=*/false, /*nowait=*/false, /*ordered_val=*/nullptr,
+        /*simd_modifier=*/false, /*nowait=*/false, /*byref=*/false,
+        /*ordered_val=*/nullptr,
         /*order_val=*/nullptr, /*inclusive=*/false);
   state.addAttributes(attributes);
 }

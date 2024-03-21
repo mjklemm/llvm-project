@@ -3057,7 +3057,7 @@ static Function *getFreshReductionFunc(Module &M) {
 static void populateReductionFunction(
     Function *ReductionFunc,
     ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
-    IRBuilder<> &Builder, bool IsGPU) {
+    IRBuilder<> &Builder, bool IsByRef, bool IsGPU) {
   Module *Module = ReductionFunc->getParent();
   BasicBlock *ReductionFuncBlock =
       BasicBlock::Create(Module->getContext(), "", ReductionFunc);
@@ -3111,7 +3111,9 @@ static void populateReductionFunction(
     Builder.restoreIP(RI.ReductionGen(Builder.saveIP(), LHS, RHS, Reduced));
     if (!Builder.GetInsertBlock())
       return;
-    Builder.CreateStore(Reduced, LHSPtr);
+    // store is inside of the reduction region when using by-ref
+    if (!IsByRef)
+      Builder.CreateStore(Reduced, LHSPtr);
   }
   Builder.CreateRetVoid();
 }
@@ -3138,7 +3140,7 @@ checkReductionInfos(ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
 
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     const LocationDescription &Loc, InsertPointTy AllocaIP,
-    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait,
+    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait, bool IsByRef,
     bool IsTeamsReduction, bool HasDistribute) {
   checkReductionInfos(ReductionInfos, /*IsGPU*/ true);
   LLVMContext &Ctx = M.getContext();
@@ -3164,7 +3166,8 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     ReductionFunc = getFreshReductionFunc(M);
     GLOBAL_ReductionFunc= ReductionFunc;
     InsertPointTy CurIP = Builder.saveIP();
-    populateReductionFunction(ReductionFunc, ReductionInfos, Builder, true);
+    populateReductionFunction(ReductionFunc, ReductionInfos, Builder, IsByRef,
+                              true);
     Builder.restoreIP(CurIP);
   }
 
@@ -3282,10 +3285,10 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
 
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
     const LocationDescription &Loc, InsertPointTy AllocaIP,
-    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait,
+    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait, bool IsByRef,
     bool IsTeamsReduction, bool HasDistribute) {
   if (Config.isGPU())
-    return createReductionsGPU(Loc, AllocaIP, ReductionInfos, IsNoWait,
+    return createReductionsGPU(Loc, AllocaIP, ReductionInfos, IsNoWait, IsByRef,
                                IsTeamsReduction, HasDistribute);
 
   checkReductionInfos(ReductionInfos, /*IsGPU*/ false);
@@ -3368,17 +3371,29 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
   for (auto En : enumerate(ReductionInfos)) {
     const ReductionInfo &RI = En.value();
     Type *ValueType = RI.ElementType;
-    Value *RedValue = Builder.CreateLoad(ValueType, RI.Variable,
-                                         "red.value." + Twine(En.index()));
+    // We have one less load for by-ref case because that load is now inside of
+    // the reduction region
+    Value *RedValue = nullptr;
+    if (!IsByRef) {
+      RedValue = Builder.CreateLoad(ValueType, RI.Variable,
+                                    "red.value." + Twine(En.index()));
+    }
     Value *PrivateRedValue =
         Builder.CreateLoad(ValueType, RI.PrivateVariable,
                            "red.private.value." + Twine(En.index()));
     Value *Reduced;
-    Builder.restoreIP(
-        RI.ReductionGen(Builder.saveIP(), RedValue, PrivateRedValue, Reduced));
+    if (IsByRef) {
+      Builder.restoreIP(RI.ReductionGen(Builder.saveIP(), RI.Variable,
+                                        PrivateRedValue, Reduced));
+    } else {
+      Builder.restoreIP(RI.ReductionGen(Builder.saveIP(), RedValue,
+                                        PrivateRedValue, Reduced));
+    }
     if (!Builder.GetInsertBlock())
       return InsertPointTy();
-    Builder.CreateStore(Reduced, RI.Variable);
+    // for by-ref case, the load is inside of the reduction region
+    if (!IsByRef)
+      Builder.CreateStore(Reduced, RI.Variable);
   }
   Function *EndReduceFunc = getOrCreateRuntimeFunctionPtr(
       IsNoWait ? RuntimeFunction::OMPRTL___kmpc_end_reduce_nowait
@@ -3390,7 +3405,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
   // function. There are no loads/stores here because they will be happening
   // inside the atomic elementwise reduction.
   Builder.SetInsertPoint(AtomicRedBlock);
-  if (CanGenerateAtomic) {
+  if (CanGenerateAtomic && !IsByRef) {
     for (const ReductionInfo &RI : ReductionInfos) {
       Builder.restoreIP(RI.AtomicReductionGen(Builder.saveIP(), RI.ElementType,
                                               RI.Variable, RI.PrivateVariable));
@@ -3405,7 +3420,8 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
   // Populate the outlined reduction function using the elementwise reduction
   // function. Partial values are extracted from the type-erased array of
   // pointers to private variables.
-  populateReductionFunction(ReductionFunc, ReductionInfos, Builder, false);
+  populateReductionFunction(ReductionFunc, ReductionInfos, Builder, IsByRef,
+                            false);
   Builder.SetInsertPoint(ContinuationBlock);
   return Builder.saveIP();
 }
@@ -6036,8 +6052,11 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetData(
     return InsertPointTy();
 
   // Disable TargetData CodeGen on Device pass.
-  if (Config.IsTargetDevice.value_or(false))
+  if (Config.IsTargetDevice.value_or(false)) {
+    if (BodyGenCB)
+      Builder.restoreIP(BodyGenCB(Builder.saveIP(), BodyGenTy::NoPriv));
     return Builder.saveIP();
+  }
 
   Builder.restoreIP(CodeGenIP);
   bool IsStandAlone = !BodyGenCB;
@@ -6262,10 +6281,15 @@ emitExecutionMode(OpenMPIRBuilder &OMPBuilder, IRBuilderBase &Builder,
 
 static void replaceConstatExprUsesInFuncWithInstr(ConstantExpr *ConstExpr,
                                                   Function *Func) {
-  for (User *User : make_early_inc_range(ConstExpr->users()))
-    if (auto *Instr = dyn_cast<Instruction>(User))
-      if (Instr->getFunction() == Func)
-        Instr->replaceUsesOfWith(ConstExpr, ConstExpr->getAsInstruction(Instr));
+  for (User *User : make_early_inc_range(ConstExpr->users())) {
+    if (auto *Instr = dyn_cast<Instruction>(User)) {
+      if (Instr->getFunction() == Func) {
+        Instruction *ConstInst = ConstExpr->getAsInstruction();
+        ConstInst->insertBefore(*Instr->getParent(), Instr->getIterator());
+        Instr->replaceUsesOfWith(ConstExpr, ConstInst);
+      }
+    }
+  }
 }
 
 static void replaceConstantValueUsesInFuncWithInstr(llvm::Value *Input,
