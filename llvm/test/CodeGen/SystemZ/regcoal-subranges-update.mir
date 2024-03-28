@@ -48,9 +48,9 @@ body:             |
 # represented for the value carried by %7.
 ---
 name:            segfault
+tracksRegLiveness: true
 frameInfo:
   adjustsStack:    true
-tracksRegLiveness: true
 liveins:         []
 body:             |
   ; CHECK-LABEL: name: segfault

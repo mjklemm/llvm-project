@@ -24,9 +24,9 @@
 ---
 name:            autogen_SD21418
 alignment:       4
+tracksRegLiveness: true
 frameInfo:
   adjustsStack:    true
-tracksRegLiveness: true
 registers:       
   - { id: 0, class: vr128bit }
   - { id: 1, class: vr128bit }

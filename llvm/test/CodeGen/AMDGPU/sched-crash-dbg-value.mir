@@ -180,9 +180,9 @@ exposesReturnsTwice: false
 legalized:       false
 regBankSelected: false
 selected:        false
+tracksRegLiveness: true
 frameInfo:
   adjustsStack:    true
-tracksRegLiveness: true
 liveins:
   - { reg: '$vgpr0', virtual-reg: '%0' }
   - { reg: '$vgpr1', virtual-reg: '%1' }

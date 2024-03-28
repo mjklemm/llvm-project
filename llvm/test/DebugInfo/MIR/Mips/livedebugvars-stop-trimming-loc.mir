@@ -71,9 +71,9 @@
 ---
 name:            fn2
 alignment:       4
+tracksRegLiveness: true
 frameInfo:
   adjustsStack:    true
-tracksRegLiveness: true
 registers:
   - { id: 0, class: gpr32, preferred-register: '' }
   - { id: 1, class: gpr32, preferred-register: '' }
