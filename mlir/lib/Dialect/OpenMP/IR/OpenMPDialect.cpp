@@ -1249,9 +1249,11 @@ void TargetOp::build(OpBuilder &builder, OperationState &state,
   // reductionByRefAttr, reductionDeclSymbols.
   TargetOp::build(
       builder, state, clauses.ifVar, clauses.deviceVar, clauses.threadLimitVar,
-      makeArrayAttr(ctx, clauses.dependTypeAttrs), clauses.dependVars,
-      clauses.nowaitAttr, clauses.isDevicePtrVars, clauses.hasDeviceAddrVars,
-      clauses.mapVars);
+      /*trip_count=*/nullptr, makeArrayAttr(ctx, clauses.dependTypeAttrs),
+      clauses.dependVars, clauses.nowaitAttr, clauses.isDevicePtrVars,
+      clauses.hasDeviceAddrVars, clauses.mapVars, /*num_teams_lower=*/nullptr,
+      /*num_teams_upper=*/nullptr, /*teams_thread_limit=*/nullptr,
+      /*num_threads=*/nullptr);
 }
 
 /// Only allow OpenMP terminators and non-OpenMP ops that have known memory

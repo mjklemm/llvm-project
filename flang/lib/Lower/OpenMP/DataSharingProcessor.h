@@ -113,10 +113,10 @@ public:
   // 2. Step2 was split in order to call privatisation for looping constructs
   // before the operation is created since the bounds of the MLIR OpenMP
   // operation can be privatised.
-  void processStep1(mlir::omp::PrivateClauseOps *clauseOps = nullptr,
+  void processStep1();
+  void processStep2(mlir::omp::PrivateClauseOps *clauseOps = nullptr,
                     llvm::SmallVectorImpl<const Fortran::semantics::Symbol *>
                         *privateSyms = nullptr);
-  void processStep2();
   void processStep3(mlir::Operation *op, bool isLoop);
 
   void setLoopIV(mlir::Value iv) {

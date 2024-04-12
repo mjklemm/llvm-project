@@ -923,17 +923,6 @@ bool ClauseProcessor::processMap(
       });
 }
 
-bool ClauseProcessor::processTargetReduction(
-    llvm::SmallVector<const Fortran::semantics::Symbol *> &reductionSymbols)
-    const {
-  return findRepeatableClause<omp::clause::Reduction>(
-      [&](const omp::clause::Reduction &clause,
-          const Fortran::parser::CharBlock &) {
-        ReductionProcessor rp;
-        rp.addReductionSym(clause, reductionSymbols);
-      });
-}
-
 bool ClauseProcessor::processReduction(
     mlir::Location currentLocation, mlir::omp::ReductionClauseOps &result,
     llvm::SmallVectorImpl<mlir::Type> *outReductionTypes,
@@ -976,6 +965,17 @@ bool ClauseProcessor::processSectionsReduction(
   return findRepeatableClause<omp::clause::Reduction>(
       [&](const omp::clause::Reduction &, const Fortran::parser::CharBlock &) {
         TODO(currentLocation, "OMPC_Reduction");
+      });
+}
+
+bool ClauseProcessor::processTargetReduction(
+    llvm::SmallVector<const Fortran::semantics::Symbol *> &reductionSymbols)
+    const {
+  return findRepeatableClause<omp::clause::Reduction>(
+      [&](const omp::clause::Reduction &clause,
+          const Fortran::parser::CharBlock &) {
+        ReductionProcessor rp;
+        rp.addReductionSym(clause, reductionSymbols);
       });
 }
 

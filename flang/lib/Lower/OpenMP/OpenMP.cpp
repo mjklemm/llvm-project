@@ -308,9 +308,11 @@ createAndSetPrivatizedLoopVar(Fortran::lower::AbstractConverter &converter,
 
 static mlir::Value
 calculateTripCount(Fortran::lower::AbstractConverter &converter,
-                   mlir::Location loc, const mlir::omp::CollapseClauseOps &ops) {
+                   mlir::Location loc,
+                   const mlir::omp::CollapseClauseOps &ops) {
   using namespace mlir::arith;
-  assert(ops.loopLBVar.size() == ops.loopUBVar.size() && ops.loopLBVar.size() == ops.loopStepVar.size() &&
+  assert(ops.loopLBVar.size() == ops.loopUBVar.size() &&
+         ops.loopLBVar.size() == ops.loopStepVar.size() &&
          !ops.loopLBVar.empty() && "Invalid bounds or step");
 
   fir::FirOpBuilder &b = converter.getFirOpBuilder();
@@ -353,7 +355,8 @@ calculateTripCount(Fortran::lower::AbstractConverter &converter,
   // Start with signless i32 by default.
   auto tripCount = b.createIntegerConstant(loc, b.getI32Type(), 1);
 
-  for (auto [origLb, origUb, origStep] : llvm::zip(ops.loopLBVar, ops.loopUBVar, ops.loopStepVar)) {
+  for (auto [origLb, origUb, origStep] :
+       llvm::zip(ops.loopLBVar, ops.loopUBVar, ops.loopStepVar)) {
     auto tmpS0 = b.createIntegerConstant(loc, origStep.getType(), 0);
     auto [step, step0] = unifyToSignless(b, origStep, tmpS0);
     auto reverseCond = b.create<CmpIOp>(loc, CmpIPredicate::slt, step, step0);
@@ -988,10 +991,12 @@ genParallelOp(Fortran::lower::AbstractConverter &converter,
 
     if (mustEvalOutsideTarget) {
       if (numThreadsClauseOps.numThreadsVar)
-        targetOp.getNumThreadsMutable().assign(numThreadsClauseOps.numThreadsVar);
+        targetOp.getNumThreadsMutable().assign(
+            numThreadsClauseOps.numThreadsVar);
     } else {
       if (numThreadsClauseOps.numThreadsVar)
-        parallelOp.getNumThreadsVarMutable().assign(numThreadsClauseOps.numThreadsVar);
+        parallelOp.getNumThreadsVarMutable().assign(
+            numThreadsClauseOps.numThreadsVar);
     }
 
     return parallelOp;
@@ -1279,15 +1284,16 @@ static OpTy genTargetEnterExitDataUpdateOp(
 
 // This functions creates a block for the body of the targetOp's region. It adds
 // all the symbols present in mapSymbols as block arguments to this block.
-static void genBodyOfTargetOp(
-    Fortran::lower::AbstractConverter &converter,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, bool genNested,
-    mlir::omp::TargetOp &targetOp,
-    llvm::ArrayRef<const Fortran::semantics::Symbol *> mapSyms,
-    llvm::ArrayRef<mlir::Location> mapSymLocs,
-    llvm::ArrayRef<mlir::Type> mapSymTypes,
-    const mlir::Location &currentLocation, DataSharingProcessor &dsp) {
+static void
+genBodyOfTargetOp(Fortran::lower::AbstractConverter &converter,
+                  Fortran::semantics::SemanticsContext &semaCtx,
+                  Fortran::lower::pft::Evaluation &eval, bool genNested,
+                  mlir::omp::TargetOp &targetOp,
+                  llvm::ArrayRef<const Fortran::semantics::Symbol *> mapSyms,
+                  llvm::ArrayRef<mlir::Location> mapSymLocs,
+                  llvm::ArrayRef<mlir::Type> mapSymTypes,
+                  const mlir::Location &currentLocation,
+                  DataSharingProcessor &dsp) {
   assert(mapSymTypes.size() == mapSymLocs.size());
 
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
@@ -1462,8 +1468,8 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
   // TODO Support delayed privatization.
 
   cp.processTODO<clause::Firstprivate, clause::InReduction, clause::Allocate,
-                 clause::UsesAllocators, clause::Defaultmap>(currentLocation,
-                                     llvm::omp::Directive::OMPD_target);
+                 clause::UsesAllocators, clause::Defaultmap>(
+      currentLocation, llvm::omp::Directive::OMPD_target);
 
   DataSharingProcessor localDSP(converter, semaCtx, clauseList, eval);
   DataSharingProcessor &actualDSP = dsp ? *dsp : localDSP;
@@ -1542,8 +1548,7 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
             mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
             mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
           }
-        } else if (llvm::find(reductionSyms, &sym) !=
-                   reductionSyms.end()) {
+        } else if (llvm::find(reductionSyms, &sym) != reductionSyms.end()) {
           // Do a tofrom map for reduction variables.
           mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
           mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
@@ -1622,18 +1627,23 @@ genTeamsOp(Fortran::lower::AbstractConverter &converter,
       OpWithBodyGenInfo(converter, semaCtx, currentLocation, eval)
           .setGenNested(genNested)
           .setOuterCombined(outerCombined)
-          .setClauses(&clauseList), clauseOps);
+          .setClauses(&clauseList),
+      clauseOps);
 
   if (mustEvalOutsideTarget) {
     if (numTeamsClauseOps.numTeamsUpperVar)
-      targetOp.getNumTeamsUpperMutable().assign(numTeamsClauseOps.numTeamsUpperVar);
+      targetOp.getNumTeamsUpperMutable().assign(
+          numTeamsClauseOps.numTeamsUpperVar);
     if (threadLimitClauseOps.threadLimitVar)
-      targetOp.getTeamsThreadLimitMutable().assign(threadLimitClauseOps.threadLimitVar);
+      targetOp.getTeamsThreadLimitMutable().assign(
+          threadLimitClauseOps.threadLimitVar);
   } else {
     if (numTeamsClauseOps.numTeamsUpperVar)
-      teamsOp.getNumTeamsUpperMutable().assign(numTeamsClauseOps.numTeamsUpperVar);
+      teamsOp.getNumTeamsUpperMutable().assign(
+          numTeamsClauseOps.numTeamsUpperVar);
     if (threadLimitClauseOps.threadLimitVar)
-      teamsOp.getThreadLimitMutable().assign(threadLimitClauseOps.threadLimitVar);
+      teamsOp.getThreadLimitMutable().assign(
+          threadLimitClauseOps.threadLimitVar);
   }
 
   return teamsOp;
@@ -1658,7 +1668,8 @@ genDistributeOp(Fortran::lower::AbstractConverter &converter,
           .setGenNested(genNested)
           .setOuterCombined(outerCombined)
           .setClauses(&clauseList)
-          .setDataSharingProcessor(dsp), clauseOps);
+          .setDataSharingProcessor(dsp),
+      clauseOps);
 }
 
 /// Extract the list of function and variable symbols affected by the given
@@ -1995,10 +2006,11 @@ static void createWsloop(Fortran::lower::AbstractConverter &converter,
 
   auto wsloopOp = genOpWithBody<mlir::omp::WsloopOp>(
       OpWithBodyGenInfo(converter, semaCtx, loc, *nestedEval)
-                    .setClauses(&beginClauseList)
-                    .setDataSharingProcessor(&dsp)
-                    .setReductions(&reductionSyms, &reductionTypes)
-                    .setGenRegionEntryCb(ivCallback));
+          .setClauses(&beginClauseList)
+          .setDataSharingProcessor(&dsp)
+          .setReductions(&reductionSyms, &reductionTypes)
+          .setGenRegionEntryCb(ivCallback),
+      clauseOps);
 
   // Create trip_count if inside of omp.target and this is host compilation
   auto offloadMod = llvm::dyn_cast<mlir::omp::OffloadModuleInterface>(
