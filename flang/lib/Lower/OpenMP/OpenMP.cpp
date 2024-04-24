@@ -2032,12 +2032,14 @@ static void createWsloop(Fortran::lower::AbstractConverter &converter,
   }
 }
 
-static void createSimdWsloop(
-    Fortran::lower::AbstractConverter &converter,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, llvm::omp::Directive ompDirective,
-    const Fortran::parser::OmpClauseList &beginClauseList,
-    const Fortran::parser::OmpClauseList *endClauseList, mlir::Location loc) {
+static void
+createSimdWsloop(Fortran::lower::AbstractConverter &converter,
+                 Fortran::semantics::SemanticsContext &semaCtx,
+                 Fortran::lower::pft::Evaluation &eval,
+                 llvm::omp::Directive ompDirective,
+                 const Fortran::parser::OmpClauseList &beginClauseList,
+                 const Fortran::parser::OmpClauseList *endClauseList,
+                 mlir::Location loc, DataSharingProcessor &dsp) {
   ClauseProcessor cp(converter, semaCtx, beginClauseList);
   cp.processTODO<clause::Aligned, clause::Allocate, clause::Linear,
                  clause::Safelen, clause::Simdlen, clause::Order>(loc,
@@ -2050,7 +2052,6 @@ static void createSimdWsloop(
   // When support for vectorization is enabled, then we need to add handling of
   // if clause. Currently if clause can be skipped because we always assume
   // SIMD length = 1.
-  DataSharingProcessor dsp(converter, semaCtx, beginClauseList, eval);
   createWsloop(converter, semaCtx, eval, ompDirective, beginClauseList,
                endClauseList, loc, dsp);
 }
@@ -2501,7 +2502,7 @@ static void genOMP(Fortran::lower::AbstractConverter &converter,
   if (llvm::omp::allDoSimdSet.test(ompDirective)) {
     // 2.9.3.2 Workshare SIMD construct
     createSimdWsloop(converter, semaCtx, eval, ompDirective, loopOpClauseList,
-                     endClauseList, currentLocation);
+                     endClauseList, currentLocation, dsp);
 
   } else if (llvm::omp::allSimdSet.test(ompDirective)) {
     // 2.9.3.1 SIMD construct
