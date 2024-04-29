@@ -36,16 +36,15 @@ namespace Fortran {
 namespace lower {
 namespace omp {
 
-mlir::omp::TargetOp findParentTargetOp(mlir::OpBuilder &builder) {
-  mlir::Operation *parentOp = builder.getBlock()->getParentOp();
-  if (!parentOp)
-    return nullptr;
-
-  auto targetOp = llvm::dyn_cast<mlir::omp::TargetOp>(parentOp);
-  if (!targetOp)
-    targetOp = parentOp->getParentOfType<mlir::omp::TargetOp>();
-
-  return targetOp;
+int64_t getCollapseValue(const List<Clause> &clauses) {
+  auto iter = llvm::find_if(clauses, [](const Clause &clause) {
+    return clause.id == llvm::omp::Clause::OMPC_collapse;
+  });
+  if (iter != clauses.end()) {
+    const auto &collapse = std::get<clause::Collapse>(iter->u);
+    return evaluate::ToInt64(collapse.v).value();
+  }
+  return 1;
 }
 
 void genObjectList(const ObjectList &objects,
@@ -61,25 +60,6 @@ void genObjectList(const ObjectList &objects,
       operands.push_back(converter.getSymbolAddress(details->symbol()));
       converter.copySymbolBinding(details->symbol(), *sym);
     }
-  }
-}
-
-void genObjectList2(const Fortran::parser::OmpObjectList &objectList,
-                    Fortran::lower::AbstractConverter &converter,
-                    llvm::SmallVectorImpl<mlir::Value> &operands) {
-  auto addOperands = [&](Fortran::lower::SymbolRef sym) {
-    const mlir::Value variable = converter.getSymbolAddress(sym);
-    if (variable) {
-      operands.push_back(variable);
-    } else if (const auto *details =
-                   sym->detailsIf<Fortran::semantics::HostAssocDetails>()) {
-      operands.push_back(converter.getSymbolAddress(details->symbol()));
-      converter.copySymbolBinding(details->symbol(), sym);
-    }
-  };
-  for (const Fortran::parser::OmpObject &ompObject : objectList.v) {
-    Fortran::semantics::Symbol *sym = getOmpObjectSymbol(ompObject);
-    addOperands(*sym);
   }
 }
 

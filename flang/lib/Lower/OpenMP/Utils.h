@@ -64,6 +64,8 @@ void gatherFuncAndVarSyms(
     const ObjectList &objects, mlir::omp::DeclareTargetCaptureClause clause,
     llvm::SmallVectorImpl<DeclareTargetCapturePair> &symbolAndClause);
 
+int64_t getCollapseValue(const List<Clause> &clauses);
+
 Fortran::semantics::Symbol *
 getOmpObjectSymbol(const Fortran::parser::OmpObject &ompObject);
 
@@ -72,10 +74,6 @@ mlir::omp::TargetOp findParentTargetOp(mlir::OpBuilder &builder);
 void genObjectList(const ObjectList &objects,
                    Fortran::lower::AbstractConverter &converter,
                    llvm::SmallVectorImpl<mlir::Value> &operands);
-
-void genObjectList2(const Fortran::parser::OmpObjectList &objectList,
-                    Fortran::lower::AbstractConverter &converter,
-                    llvm::SmallVectorImpl<mlir::Value> &operands);
 
 } // namespace omp
 } // namespace lower
