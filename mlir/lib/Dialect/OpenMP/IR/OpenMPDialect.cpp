@@ -1389,6 +1389,11 @@ bool TargetOp::isTargetSPMDLoop() {
     return false;
 
   Operation *workshareOp = capturedOp->getParentOp();
+
+  // Accept optional SIMD leaf construct.
+  if (isa_and_present<SimdOp>(workshareOp))
+    workshareOp = workshareOp->getParentOp();
+
   if (!isa_and_present<WsloopOp>(workshareOp))
     return false;
 

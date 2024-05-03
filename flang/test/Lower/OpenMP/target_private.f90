@@ -28,3 +28,42 @@ subroutine omp_target_private
 !CHECK-NEXT: }
 
 end subroutine omp_target_private
+
+!CHECK-LABEL: func.func @_QPomp_target_target_do_simd()
+subroutine omp_target_target_do_simd()
+    implicit none
+
+    real(8) :: var
+    integer(8) :: iv
+
+!$omp target teams distribute parallel do simd private(iv,var)
+    do iv=0,10
+        var = 3.14
+    end do
+!$omp end target teams distribute parallel do simd 
+
+!CHECK: omp.target trip_count
+!CHECK:       fir.alloca f64 {bindc_name = "var", pinned
+!CHECK:       omp.teams {
+!CHECK:         fir.alloca i64
+!CHECK:         omp.distribute {
+!CHECK-NEXT:      omp.parallel {
+!CHECK-NEXT:        omp.wsloop {
+!CHECK-NEXT:          omp.simd {
+!CHECK-NEXT:            omp.loop_nest
+!CHECK:                   omp.yield
+!CHECK-NEXT:            }
+!CHECK-NEXT:            omp.terminator
+!CHECK-NEXT:          }
+!CHECK-NEXT:          omp.terminator
+!CHECK-NEXT:        }
+!CHECK-NEXT:        omp.terminator
+!CHECK-NEXT:      }
+!CHECK-NEXT:      omp.terminator
+!CHECK-NEXT:    }
+!CHECK-NEXT:    omp.terminator
+!CHECK-NEXT:  }
+!CHECK-NEXT:  omp.terminator
+!CHECK-NEXT: }
+
+end subroutine omp_target_target_do_simd
