@@ -69,8 +69,6 @@ int64_t getCollapseValue(const List<Clause> &clauses);
 Fortran::semantics::Symbol *
 getOmpObjectSymbol(const Fortran::parser::OmpObject &ompObject);
 
-mlir::omp::TargetOp findParentTargetOp(mlir::OpBuilder &builder);
-
 void genObjectList(const ObjectList &objects,
                    Fortran::lower::AbstractConverter &converter,
                    llvm::SmallVectorImpl<mlir::Value> &operands);

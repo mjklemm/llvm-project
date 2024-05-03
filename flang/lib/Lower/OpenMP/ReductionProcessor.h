@@ -112,7 +112,7 @@ public:
 
   static void addReductionSym(
       const omp::clause::Reduction &reduction,
-      llvm::SmallVector<const Fortran::semantics::Symbol *> &symbols);
+      llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &symbols);
 
   /// Creates an OpenMP reduction declaration and inserts it into the provided
   /// symbol table. The declaration has a constant initializer with the neutral

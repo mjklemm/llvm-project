@@ -1385,10 +1385,14 @@ Operation *TargetOp::getInnermostCapturedOmpOp() {
 
 bool TargetOp::isTargetSPMDLoop() {
   Operation *capturedOp = getInnermostCapturedOmpOp();
-  if (!isa_and_present<WsloopOp, SimdLoopOp>(capturedOp))
+  if (!isa_and_present<LoopNestOp>(capturedOp))
     return false;
 
-  Operation *parallelOp = capturedOp->getParentOp();
+  Operation *workshareOp = capturedOp->getParentOp();
+  if (!isa_and_present<WsloopOp>(workshareOp))
+    return false;
+
+  Operation *parallelOp = workshareOp->getParentOp();
   if (!isa_and_present<ParallelOp>(parallelOp))
     return false;
 

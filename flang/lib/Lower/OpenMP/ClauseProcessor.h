@@ -127,8 +127,8 @@ public:
   bool processSectionsReduction(mlir::Location currentLocation,
                                 mlir::omp::ReductionClauseOps &result) const;
   bool processTargetReduction(
-      llvm::SmallVector<const Fortran::semantics::Symbol *> &reductionSymbols)
-      const;
+      llvm::SmallVectorImpl<const Fortran::semantics::Symbol *>
+          &reductionSymbols) const;
   bool processTo(llvm::SmallVectorImpl<DeclareTargetCapturePair> &result) const;
   bool
   processUseDeviceAddr(mlir::omp::UseDeviceClauseOps &result,

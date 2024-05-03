@@ -99,15 +99,19 @@ public:
                   "constant LB, UB, and step values.");
     }
 
-    llvm::SmallVector<mlir::Value> lowerBound, upperBound, step;
-    lowerBound.push_back(rewriter.clone(*lbOp)->getResult(0));
-    upperBound.push_back(rewriter.clone(*ubOp)->getResult(0));
-    step.push_back(rewriter.clone(*stepOp)->getResult(0));
+    mlir::omp::LoopNestClauseOps clauseOps;
+    clauseOps.loopLBVar.push_back(rewriter.clone(*lbOp)->getResult(0));
+    clauseOps.loopUBVar.push_back(rewriter.clone(*ubOp)->getResult(0));
+    clauseOps.loopStepVar.push_back(rewriter.clone(*stepOp)->getResult(0));
+    clauseOps.loopInclusiveAttr = rewriter.getUnitAttr();
     // ==== TODO (1) End ====
+    auto wsloopOp = rewriter.create<mlir::omp::WsloopOp>(doLoop.getLoc());
+    rewriter.createBlock(&wsloopOp.getRegion());
+    rewriter.setInsertionPoint(
+        rewriter.create<mlir::omp::TerminatorOp>(wsloopOp.getLoc()));
 
-    auto wsLoopOp = rewriter.create<mlir::omp::WsloopOp>(
-        doLoop.getLoc(), lowerBound, upperBound, step);
-    wsLoopOp.setInclusive(true);
+    auto loopNestOp =
+        rewriter.create<mlir::omp::LoopNestOp>(doLoop.getLoc(), clauseOps);
 
     auto outlineableOp =
         mlir::dyn_cast<mlir::omp::OutlineableOpenMPOpInterface>(*parallelOp);
@@ -180,11 +184,11 @@ public:
 
     // Clone the loop's body inside the worksharing construct using the mapped
     // memref values.
-    rewriter.cloneRegionBefore(doLoop.getRegion(), wsLoopOp.getRegion(),
-                               wsLoopOp.getRegion().begin(), mapper);
+    rewriter.cloneRegionBefore(doLoop.getRegion(), loopNestOp.getRegion(),
+                               loopNestOp.getRegion().begin(), mapper);
 
-    mlir::Operation *terminator = wsLoopOp.getRegion().back().getTerminator();
-    rewriter.setInsertionPointToEnd(&wsLoopOp.getRegion().back());
+    mlir::Operation *terminator = loopNestOp.getRegion().back().getTerminator();
+    rewriter.setInsertionPointToEnd(&loopNestOp.getRegion().back());
     rewriter.create<mlir::omp::YieldOp>(terminator->getLoc());
     rewriter.eraseOp(terminator);
 

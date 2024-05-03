@@ -72,7 +72,7 @@ ReductionProcessor::ReductionIdentifier ReductionProcessor::getReductionType(
 
 void ReductionProcessor::addReductionSym(
     const omp::clause::Reduction &reduction,
-    llvm::SmallVector<const Fortran::semantics::Symbol *> &symbols) {
+    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &symbols) {
   const auto &objectList{std::get<omp::ObjectList>(reduction.t)};
   llvm::transform(objectList, std::back_inserter(symbols),
                   [](const Object &object) { return object.id(); });

@@ -969,7 +969,7 @@ bool ClauseProcessor::processSectionsReduction(
 }
 
 bool ClauseProcessor::processTargetReduction(
-    llvm::SmallVector<const Fortran::semantics::Symbol *> &reductionSymbols)
+    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &reductionSymbols)
     const {
   return findRepeatableClause<omp::clause::Reduction>(
       [&](const omp::clause::Reduction &clause,

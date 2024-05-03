@@ -44,7 +44,7 @@ program main
   !$omp teams
 
   ! CHECK: omp.distribute
-  ! CHECK: omp.simdloop
+  ! CHECK: omp.simd
   !$omp distribute simd
   do i = 1, 10
   end do
@@ -138,7 +138,7 @@ program main
   ! CHECK: omp.target
   ! CHECK: omp.teams
   ! CHECK: omp.distribute
-  ! CHECK: omp.simdloop
+  ! CHECK: omp.simd
   !$omp target teams distribute simd
   do i = 1, 10
   end do
@@ -151,7 +151,6 @@ program main
   ! CHECK: omp.target
   ! CHECK: omp.teams
   ! CHECK: omp.distribute
-  ! CHECK: omp.wsloop
   !$omp target teams distribute
   do i = 1, 10
   end do
@@ -199,7 +198,7 @@ program main
 
   ! CHECK: omp.teams
   ! CHECK: omp.distribute
-  ! CHECK: omp.simdloop
+  ! CHECK: omp.simd
   !$omp teams distribute simd
   do i = 1, 10
   end do
@@ -211,7 +210,6 @@ program main
 
   ! CHECK: omp.teams
   ! CHECK: omp.distribute
-  ! CHECK: omp.wsloop
   !$omp teams distribute
   do i = 1, 10
   end do

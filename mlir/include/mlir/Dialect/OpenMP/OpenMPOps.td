@@ -602,7 +602,7 @@ def LoopNestOp : OpenMP_Op<"loop_nest", [SameVariadicOperandSize,
 def WsloopOp : OpenMP_Op<"wsloop", [AttrSizedOperandSegments,
                          DeclareOpInterfaceMethods<LoopWrapperInterface>,
                          RecursiveMemoryEffects, ReductionClauseInterface,
-                         SingleBlockImplicitTerminator<"TerminatorOp">]> {
+                         SingleBlock]> {
   let summary = "worksharing-loop construct";
   let description = [{
     The worksharing-loop construct specifies that the iterations of the loop(s)
@@ -715,8 +715,7 @@ def WsloopOp : OpenMP_Op<"wsloop", [AttrSizedOperandSegments,
 
 def SimdOp : OpenMP_Op<"simd", [AttrSizedOperandSegments,
                        DeclareOpInterfaceMethods<LoopWrapperInterface>,
-                       RecursiveMemoryEffects,
-                       SingleBlockImplicitTerminator<"TerminatorOp">]> {
+                       RecursiveMemoryEffects, SingleBlock]> {
  let summary = "simd construct";
   let description = [{
     The simd construct can be applied to a loop to indicate that the loop can be
@@ -820,8 +819,7 @@ def YieldOp : OpenMP_Op<"yield",
 //===----------------------------------------------------------------------===//
 def DistributeOp : OpenMP_Op<"distribute", [AttrSizedOperandSegments,
                              DeclareOpInterfaceMethods<LoopWrapperInterface>,
-                             RecursiveMemoryEffects,
-                             SingleBlockImplicitTerminator<"TerminatorOp">]> {
+                             RecursiveMemoryEffects, SingleBlock]> {
   let summary = "distribute construct";
   let description = [{
     The distribute construct specifies that the iterations of one or more loops
@@ -1014,7 +1012,7 @@ def TaskloopOp : OpenMP_Op<"taskloop", [AttrSizedOperandSegments,
                            AutomaticAllocationScope,
                            DeclareOpInterfaceMethods<LoopWrapperInterface>,
                            RecursiveMemoryEffects, ReductionClauseInterface,
-                           SingleBlockImplicitTerminator<"TerminatorOp">]> {
+                           SingleBlock]> {
   let summary = "taskloop construct";
   let description = [{
     The taskloop construct specifies that the iterations of one or more
