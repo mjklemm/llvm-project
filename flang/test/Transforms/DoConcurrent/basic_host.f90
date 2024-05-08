@@ -2,12 +2,13 @@
 
 ! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=host %s -o - \
 ! RUN:   | FileCheck %s
-
+! RUN: bbc -emit-hlfir --fopenmp-do-concurrent-conversion="map-to=host" %s -o - \
+! RUN:   | FileCheck %s
+ 
 ! CHECK-LABEL: do_concurrent_basic
 program do_concurrent_basic
     ! CHECK: %[[ARR:.*]]:2 = hlfir.declare %{{.*}}(%{{.*}}) {uniq_name = "_QFEa"} : (!fir.ref<!fir.array<10xi32>>, !fir.shape<1>) -> (!fir.ref<!fir.array<10xi32>>, !fir.ref<!fir.array<10xi32>>)
-    ! CHECK: %[[C1:.*]] = arith.constant 1 : i32
-    ! CHECK: %[[C10:.*]] = arith.constant 10 : i32
+
     implicit none
     integer :: a(10)
     integer :: i
@@ -19,7 +20,9 @@ program do_concurrent_basic
     ! CHECK-NEXT: %[[ITER_VAR:.*]] = fir.alloca i32 {bindc_name = "i"}
     ! CHECK-NEXT: %[[BINDING:.*]]:2 = hlfir.declare %[[ITER_VAR]] {uniq_name = "_QFEi"} : (!fir.ref<i32>) -> (!fir.ref<i32>, !fir.ref<i32>)
 
+    ! CHECK: %[[C1:.*]] = arith.constant 1 : i32
     ! CHECK: %[[LB:.*]] = fir.convert %[[C1]] : (i32) -> index
+    ! CHECK: %[[C10:.*]] = arith.constant 10 : i32
     ! CHECK: %[[UB:.*]] = fir.convert %[[C10]] : (i32) -> index
     ! CHECK: %[[STEP:.*]] = arith.constant 1 : index
 
@@ -39,7 +42,7 @@ program do_concurrent_basic
 
     ! CHECK-NEXT: omp.terminator
     ! CHECK-NEXT: }
-    do concurrent (integer :: i=1:10)
+    do concurrent (i=1:10)
         a(i) = i
     end do
 

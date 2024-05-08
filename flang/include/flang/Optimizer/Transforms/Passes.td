@@ -423,8 +423,12 @@ def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir:
          target.
   }];
 
-  let constructor = "::fir::createDoConcurrentConversionPass()";
   let dependentDialects = ["mlir::omp::OpenMPDialect"];
+
+  let options = [
+    Option<"mapTo", "map-to", "std::string", "",
+           "Try to map `do concurrent` loops to OpenMP (on host or device)">,
+  ];
 }
 
 #endif // FLANG_OPTIMIZER_TRANSFORMS_PASSES

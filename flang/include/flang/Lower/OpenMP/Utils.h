@@ -50,7 +50,7 @@ using DeclareTargetCapturePair =
               const Fortran::semantics::Symbol &>;
 
 mlir::omp::MapInfoOp
-createMapInfoOp(fir::FirOpBuilder &builder, mlir::Location loc,
+createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
                 mlir::Value baseAddr, mlir::Value varPtrPtr, std::string name,
                 mlir::ArrayRef<mlir::Value> bounds,
                 mlir::ArrayRef<mlir::Value> members, uint64_t mapType,
@@ -73,6 +73,8 @@ void genObjectList(const ObjectList &objects,
                    Fortran::lower::AbstractConverter &converter,
                    llvm::SmallVectorImpl<mlir::Value> &operands);
 
+mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
+                               const mlir::omp::CollapseClauseOps &ops);
 } // namespace omp
 } // namespace lower
 } // namespace Fortran

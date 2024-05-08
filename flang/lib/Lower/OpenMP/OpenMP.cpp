@@ -13,15 +13,15 @@
 #include "flang/Lower/OpenMP.h"
 
 #include "ClauseProcessor.h"
-#include "Clauses.h"
 #include "DataSharingProcessor.h"
 #include "DirectivesCommon.h"
 #include "ReductionProcessor.h"
-#include "Utils.h"
 #include "flang/Common/idioms.h"
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/ConvertExpr.h"
 #include "flang/Lower/ConvertVariable.h"
+#include "flang/Lower/OpenMP/Clauses.h"
+#include "flang/Lower/OpenMP/Utils.h"
 #include "flang/Lower/StatementContext.h"
 #include "flang/Lower/SymbolMap.h"
 #include "flang/Optimizer/Builder/BoxValue.h"
@@ -278,84 +278,6 @@ static void threadPrivatizeVars(Fortran::lower::AbstractConverter &converter,
         getExtendedValue(sexv, symThreadprivateValue);
     converter.bindSymbol(*sym, symThreadprivateExv);
   }
-}
-
-static mlir::Value
-calculateTripCount(Fortran::lower::AbstractConverter &converter,
-                   mlir::Location loc,
-                   const mlir::omp::CollapseClauseOps &ops) {
-  using namespace mlir::arith;
-  assert(ops.loopLBVar.size() == ops.loopUBVar.size() &&
-         ops.loopLBVar.size() == ops.loopStepVar.size() &&
-         !ops.loopLBVar.empty() && "Invalid bounds or step");
-
-  fir::FirOpBuilder &b = converter.getFirOpBuilder();
-
-  // Get the bit width of an integer-like type.
-  auto widthOf = [](mlir::Type ty) -> unsigned {
-    if (mlir::isa<mlir::IndexType>(ty)) {
-      return mlir::IndexType::kInternalStorageBitWidth;
-    }
-    if (auto tyInt = mlir::dyn_cast<mlir::IntegerType>(ty)) {
-      return tyInt.getWidth();
-    }
-    llvm_unreachable("Unexpected type");
-  };
-
-  // For a type that is either IntegerType or IndexType, return the
-  // equivalent IntegerType. In the former case this is a no-op.
-  auto asIntTy = [&](mlir::Type ty) -> mlir::IntegerType {
-    if (ty.isIndex()) {
-      return mlir::IntegerType::get(ty.getContext(), widthOf(ty));
-    }
-    assert(ty.isIntOrIndex() && "Unexpected type");
-    return mlir::cast<mlir::IntegerType>(ty);
-  };
-
-  // For two given values, establish a common signless IntegerType
-  // that can represent any value of type of x and of type of y,
-  // and return the pair of x, y converted to the new type.
-  auto unifyToSignless =
-      [&](fir::FirOpBuilder &b, mlir::Value x,
-          mlir::Value y) -> std::pair<mlir::Value, mlir::Value> {
-    auto tyX = asIntTy(x.getType()), tyY = asIntTy(y.getType());
-    unsigned width = std::max(widthOf(tyX), widthOf(tyY));
-    auto wideTy = mlir::IntegerType::get(b.getContext(), width,
-                                         mlir::IntegerType::Signless);
-    return std::make_pair(b.createConvert(loc, wideTy, x),
-                          b.createConvert(loc, wideTy, y));
-  };
-
-  // Start with signless i32 by default.
-  auto tripCount = b.createIntegerConstant(loc, b.getI32Type(), 1);
-
-  for (auto [origLb, origUb, origStep] :
-       llvm::zip(ops.loopLBVar, ops.loopUBVar, ops.loopStepVar)) {
-    auto tmpS0 = b.createIntegerConstant(loc, origStep.getType(), 0);
-    auto [step, step0] = unifyToSignless(b, origStep, tmpS0);
-    auto reverseCond = b.create<CmpIOp>(loc, CmpIPredicate::slt, step, step0);
-    auto negStep = b.create<SubIOp>(loc, step0, step);
-    mlir::Value absStep = b.create<SelectOp>(loc, reverseCond, negStep, step);
-
-    auto [lb, ub] = unifyToSignless(b, origLb, origUb);
-    auto start = b.create<SelectOp>(loc, reverseCond, ub, lb);
-    auto end = b.create<SelectOp>(loc, reverseCond, lb, ub);
-
-    mlir::Value range = b.create<SubIOp>(loc, end, start);
-    auto rangeCond = b.create<CmpIOp>(loc, CmpIPredicate::slt, end, start);
-    std::tie(range, absStep) = unifyToSignless(b, range, absStep);
-    // numSteps = (range /u absStep) + 1
-    auto numSteps =
-        b.create<AddIOp>(loc, b.create<DivUIOp>(loc, range, absStep),
-                         b.createIntegerConstant(loc, range.getType(), 1));
-
-    auto trip0 = b.createIntegerConstant(loc, numSteps.getType(), 0);
-    auto loopTripCount = b.create<SelectOp>(loc, rangeCond, trip0, numSteps);
-    auto [totalTC, thisTC] = unifyToSignless(b, tripCount, loopTripCount);
-    tripCount = b.create<MulIOp>(loc, totalTC, thisTC);
-  }
-
-  return tripCount;
 }
 
 static mlir::Operation *
@@ -1572,8 +1494,8 @@ genLoopNestOp(Fortran::lower::AbstractConverter &converter,
     llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
     ClauseProcessor cp(converter, semaCtx, clauses);
     cp.processCollapse(loc, eval, collapseClauseOps, iv);
-    targetOp.getTripCountMutable().assign(
-        calculateTripCount(converter, loc, collapseClauseOps));
+    targetOp.getTripCountMutable().assign(calculateTripCount(
+        converter.getFirOpBuilder(), loc, collapseClauseOps));
   }
   return loopNestOp;
 }

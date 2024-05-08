@@ -11,8 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClauseProcessor.h"
-#include "Clauses.h"
 
+#include "flang/Lower/OpenMP/Clauses.h"
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Parser/tools.h"
 #include "flang/Semantics/tools.h"
@@ -805,30 +805,6 @@ bool ClauseProcessor::processLink(
         gatherFuncAndVarSyms(
             clause.v, mlir::omp::DeclareTargetCaptureClause::link, result);
       });
-}
-
-mlir::omp::MapInfoOp
-createMapInfoOp(fir::FirOpBuilder &builder, mlir::Location loc,
-                mlir::Value baseAddr, mlir::Value varPtrPtr, std::string name,
-                llvm::ArrayRef<mlir::Value> bounds,
-                llvm::ArrayRef<mlir::Value> members, uint64_t mapType,
-                mlir::omp::VariableCaptureKind mapCaptureType, mlir::Type retTy,
-                bool isVal) {
-  if (auto boxTy = baseAddr.getType().dyn_cast<fir::BaseBoxType>()) {
-    baseAddr = builder.create<fir::BoxAddrOp>(loc, baseAddr);
-    retTy = baseAddr.getType();
-  }
-
-  mlir::TypeAttr varType = mlir::TypeAttr::get(
-      llvm::cast<mlir::omp::PointerLikeType>(retTy).getElementType());
-
-  mlir::omp::MapInfoOp op = builder.create<mlir::omp::MapInfoOp>(
-      loc, retTy, baseAddr, varType, varPtrPtr, members, bounds,
-      builder.getIntegerAttr(builder.getIntegerType(64, false), mapType),
-      builder.getAttr<mlir::omp::VariableCaptureKindAttr>(mapCaptureType),
-      builder.getStringAttr(name));
-
-  return op;
 }
 
 bool ClauseProcessor::processMap(

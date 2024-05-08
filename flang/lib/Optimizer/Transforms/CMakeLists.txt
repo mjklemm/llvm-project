@@ -23,6 +23,7 @@ add_flang_library(FIRTransforms
   VScaleAttr.cpp
   FunctionAttr.cpp
   DoConcurrentConversion.cpp
+  ../../Lower/OpenMP/Utils.cpp
 
   DEPENDS
   FIRDialect
