@@ -211,7 +211,7 @@ private:
 
     mlir::Type liveInType = liveIn.getType();
     mlir::Type eleType = liveInType;
-    if (auto refType = liveInType.dyn_cast<fir::ReferenceType>())
+    if (auto refType = mlir::dyn_cast<fir::ReferenceType>(liveInType))
       eleType = refType.getElementType();
 
     llvm::omp::OpenMPOffloadMappingFlags mapFlag =
