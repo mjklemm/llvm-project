@@ -1421,10 +1421,12 @@ def MapInfoOp : OpenMP_Op<"map.info", [AttrSizedOperandSegments]> {
                        TypeAttr:$var_type,
                        Optional<OpenMP_PointerLikeType>:$var_ptr_ptr,
                        Variadic<OpenMP_PointerLikeType>:$members,
+                       OptionalAttr<AnyIntElementsAttr>:$members_index,
                        Variadic<MapBoundsType>:$bounds, /* rank-0 to rank-{n-1} */
                        OptionalAttr<UI64Attr>:$map_type,
                        OptionalAttr<VariableCaptureKindAttr>:$map_capture_type,
-                       OptionalAttr<StrAttr>:$name);
+                       OptionalAttr<StrAttr>:$name,
+                       DefaultValuedAttr<BoolAttr, "false">:$partial_map);
   let results = (outs OpenMP_PointerLikeType:$omp_ptr);
 
   let description = [{
@@ -1460,10 +1462,14 @@ def MapInfoOp : OpenMP_Op<"map.info", [AttrSizedOperandSegments]> {
     - `var_type`: The type of the variable to copy.
     - `var_ptr_ptr`: Used when the variable copied is a member of a class, structure
       or derived type and refers to the originating struct.
-    - `members`:  Used to indicate mapped child members for the current MapInfoOp,
+    - `members`: Used to indicate mapped child members for the current MapInfoOp,
        represented as other MapInfoOp's, utilised in cases where a parent structure
        type and members of the structure type are being mapped at the same time.
        For example: map(to: parent, parent->member, parent->member2[:10])
+    - `members_index`: Used to indicate the ordering of members within the containing
+       parent (generally a record type such as a structure, class or derived type),
+       e.g. struct {int x, float y, double z}, x would be 0, y would be 1, and z
+       would be 2. This aids the mapping.
     - `bounds`: Used when copying slices of array's, pointers or pointer members of
        objects (e.g. derived types or classes), indicates the bounds to be copied
        of the variable. When it's an array slice it is in rank order where rank 0
@@ -1474,6 +1480,8 @@ def MapInfoOp : OpenMP_Op<"map.info", [AttrSizedOperandSegments]> {
     - 'map_capture_type': Capture type for the variable e.g. this, byref, byvalue, byvla
        this can affect how the variable is lowered.
     - `name`: Holds the name of variable as specified in user clause (including bounds).
+    - `partial_map`: The record type being mapped will not be mapped in its entirety,
+       it may be used however, in a mapping to bind it's mapped components together.
   }];
 
   let assemblyFormat = [{
@@ -1482,7 +1490,7 @@ def MapInfoOp : OpenMP_Op<"map.info", [AttrSizedOperandSegments]> {
         `var_ptr_ptr` `(` $var_ptr_ptr `:` type($var_ptr_ptr) `)`
       | `map_clauses` `(` custom<MapClause>($map_type) `)`
       | `capture` `(` custom<CaptureType>($map_capture_type) `)`
-      | `members` `(` $members `:` type($members) `)`
+      | `members` `(` $members `:` custom<MembersIndex>($members_index) `:` type($members) `)`
       | `bounds` `(` $bounds `)`
     ) `->` type($omp_ptr) attr-dict
   }];
@@ -1798,10 +1806,13 @@ def TargetOp : OpenMP_Op<"target", [IsolatedFromAbove, MapClauseOwningOpInterfac
                        Variadic<OpenMP_PointerLikeType>:$is_device_ptr,
                        Variadic<OpenMP_PointerLikeType>:$has_device_addr,
                        Variadic<AnyType>:$map_operands,
+                       Variadic<AnyType>:$private_vars,
+                       OptionalAttr<SymbolRefArrayAttr>:$privatizers,
                        Optional<AnyInteger>:$num_teams_lower,
                        Optional<AnyInteger>:$num_teams_upper,
                        Optional<AnyInteger>:$teams_thread_limit,
                        Optional<AnyInteger>:$num_threads);
+
   let regions = (region AnyRegion:$region);
 
   let builders = [
@@ -1813,11 +1824,12 @@ def TargetOp : OpenMP_Op<"target", [IsolatedFromAbove, MapClauseOwningOpInterfac
     | `device` `(` $device `:` type($device) `)`
     | `thread_limit` `(` $thread_limit `:` type($thread_limit) `)`
     | `trip_count` `(` $trip_count `:` type($trip_count) `)`
-    | `depend` `(` custom<DependVarList>($depend_vars, type($depend_vars), $depends) `)`
     | `nowait` $nowait
     | `is_device_ptr` `(` $is_device_ptr `:` type($is_device_ptr) `)`
     | `has_device_addr` `(` $has_device_addr `:` type($has_device_addr) `)`
     | `map_entries` `(` custom<MapEntries>($map_operands, type($map_operands)) `)`
+    | `private` `(` custom<PrivateList>($private_vars, type($private_vars), $privatizers) `)`
+    | `depend` `(` custom<DependVarList>($depend_vars, type($depend_vars), $depends) `)`
     | `num_teams` `(` ( $num_teams_lower^ `:` type($num_teams_lower) )? `to`
                         $num_teams_upper `:` type($num_teams_upper) `)`
     | `teams_thread_limit` `(` $teams_thread_limit `:` type($teams_thread_limit) `)`
