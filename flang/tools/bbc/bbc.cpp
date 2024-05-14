@@ -139,10 +139,11 @@ static llvm::cl::opt<bool>
                        llvm::cl::desc("enable openmp device compilation"),
                        llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    enableDoConcurrentToOpenMPConversion("fopenmp-do-concurrent-parallel",
-                                         llvm::cl::desc("xxxx"),
-                                         llvm::cl::init(false));
+static llvm::cl::opt<bool> enableDoConcurrentToOpenMPConversion(
+    "fopenmp-do-concurrent-parallel",
+    llvm::cl::desc(
+        "Try to map `do concurrent` loops to OpenMP (on host or device)"),
+    llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
     enableOpenMPGPU("fopenmp-is-gpu",
