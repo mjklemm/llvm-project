@@ -89,7 +89,6 @@ createFunctionAttrPass(FunctionAttrTypes &functionAttr, bool noInfsFPMath,
                        bool noNaNsFPMath, bool approxFuncFPMath,
                        bool noSignedZerosFPMath, bool unsafeFPMath);
 
-std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass();
 std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
 
 void populateCfgConversionRewrites(mlir::RewritePatternSet &patterns,

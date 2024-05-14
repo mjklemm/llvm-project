@@ -80,7 +80,7 @@ public:
     assert(!liveIns.empty());
 
     mlir::IRMapping mapper;
-    mlir::omp::TargetOp targetOp = nullptr;
+    mlir::omp::TargetOp targetOp;
     mlir::omp::LoopNestClauseOps loopNestClauseOps;
 
     if (mapToDevice) {
@@ -121,7 +121,7 @@ public:
 
 private:
   /// Collect the list of values used inside the loop but defined outside of it.
-  /// The first item in the retunred list is always the loop's induction
+  /// The first item in the returned list is always the loop's induction
   /// variable.
   void collectLoopLiveIns(fir::DoLoopOp doLoop,
                           llvm::SmallVectorImpl<mlir::Value> &liveIns) const {
@@ -246,15 +246,6 @@ private:
                                   mlir::omp::TargetClauseOps &clauseOps) const {
     auto targetOp = rewriter.create<mlir::omp::TargetOp>(loc, clauseOps);
 
-    genBodyOfTargetOp(rewriter, targetOp, liveIns, clauseOps.mapVars, mapper);
-    return targetOp;
-  }
-
-  void genBodyOfTargetOp(mlir::ConversionPatternRewriter &rewriter,
-                         mlir::omp::TargetOp targetOp,
-                         llvm::ArrayRef<mlir::Value> liveIns,
-                         llvm::ArrayRef<mlir::Value> liveInMapInfoOps,
-                         mlir::IRMapping &mapper) const {
     mlir::Region &region = targetOp.getRegion();
 
     llvm::SmallVector<mlir::Type> liveInTypes;
@@ -268,15 +259,16 @@ private:
     rewriter.createBlock(&region, {}, liveInTypes, liveInLocs);
 
     for (auto [arg, mapInfoOp] :
-         llvm::zip_equal(region.getArguments(), liveInMapInfoOps)) {
+         llvm::zip_equal(region.getArguments(), clauseOps.mapVars)) {
       auto miOp = mlir::cast<mlir::omp::MapInfoOp>(mapInfoOp.getDefiningOp());
       hlfir::DeclareOp liveInDeclare = genLiveInDeclare(rewriter, arg, miOp);
       mapper.map(miOp.getVariableOperand(0), liveInDeclare.getBase());
     }
 
-    auto terminator =
-        rewriter.create<mlir::omp::TerminatorOp>(targetOp.getLoc());
-    rewriter.setInsertionPoint(terminator);
+    rewriter.setInsertionPoint(
+        rewriter.create<mlir::omp::TerminatorOp>(targetOp.getLoc()));
+
+    return targetOp;
   }
 
   hlfir::DeclareOp
@@ -329,9 +321,8 @@ private:
     auto teamsOp = rewriter.create<mlir::omp::TeamsOp>(
         loc, /*clauses=*/mlir::omp::TeamsClauseOps{});
 
-    mlir::Block *teamsBlock = rewriter.createBlock(&teamsOp.getRegion());
-    rewriter.create<mlir::omp::TerminatorOp>(loc);
-    rewriter.setInsertionPointToStart(teamsBlock);
+    rewriter.createBlock(&teamsOp.getRegion());
+    rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
 
     genInductionVariableAlloc(rewriter, liveIns, mapper);
     genLoopNestClauseOps(loc, rewriter, doLoop, mapper, loopNestClauseOps);
@@ -388,9 +379,8 @@ private:
     auto distOp = rewriter.create<mlir::omp::DistributeOp>(
         loc, /*clauses=*/mlir::omp::DistributeClauseOps{});
 
-    mlir::Block *distBlock = rewriter.createBlock(&distOp.getRegion());
-    rewriter.create<mlir::omp::TerminatorOp>(loc);
-    rewriter.setInsertionPointToStart(distBlock);
+    rewriter.createBlock(&distOp.getRegion());
+    rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
 
     return distOp;
   }
@@ -419,9 +409,8 @@ private:
                 mlir::IRMapping &mapper,
                 mlir::omp::LoopNestClauseOps &loopNestClauseOps) const {
     auto parallelOp = rewriter.create<mlir::omp::ParallelOp>(loc);
-    mlir::Block *parRegion = rewriter.createBlock(&parallelOp.getRegion());
-    rewriter.create<mlir::omp::TerminatorOp>(loc);
-    rewriter.setInsertionPointToStart(parRegion);
+    rewriter.createBlock(&parallelOp.getRegion());
+    rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
 
     // If mapping to host, the local induction variable and loop bounds need to
     // be emitted as part of the `omp.parallel` op.
@@ -446,7 +435,7 @@ private:
     auto loopNestOp =
         rewriter.create<mlir::omp::LoopNestOp>(doLoop.getLoc(), clauseOps);
 
-    // Clone the loop's body inside the worksharing construct using the
+    // Clone the loop's body inside the loop nest construct using the
     // mapped values.
     rewriter.cloneRegionBefore(doLoop.getRegion(), loopNestOp.getRegion(),
                                loopNestOp.getRegion().begin(), mapper);
