@@ -5565,7 +5565,7 @@ CallInst *OpenMPIRBuilder::createOMPAlloc(const LocationDescription &Loc,
                                           Value *Size, Value *Allocator,
                                           std::string Name) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
@@ -5582,7 +5582,7 @@ CallInst *OpenMPIRBuilder::createOMPFree(const LocationDescription &Loc,
                                          Value *Addr, Value *Allocator,
                                          std::string Name) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
@@ -5598,7 +5598,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropInit(
     omp::OMPInteropType InteropType, Value *Device, Value *NumDependences,
     Value *DependenceAddress, bool HaveNowaitClause) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
@@ -5626,7 +5626,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropDestroy(
     const LocationDescription &Loc, Value *InteropVar, Value *Device,
     Value *NumDependences, Value *DependenceAddress, bool HaveNowaitClause) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
@@ -5655,7 +5655,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropUse(const LocationDescription &Loc,
                                                Value *DependenceAddress,
                                                bool HaveNowaitClause) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
   Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
@@ -5681,7 +5681,7 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
     const LocationDescription &Loc, llvm::Value *Pointer,
     llvm::ConstantInt *Size, const llvm::Twine &Name) {
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  Builder.restoreIP(Loc.IP);
+  updateToLocation(Loc);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
