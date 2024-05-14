@@ -140,6 +140,11 @@ static llvm::cl::opt<bool>
                        llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
+    enableDoConcurrentToOpenMPConversion("fopenmp-do-concurrent-parallel",
+                                         llvm::cl::desc("xxxx"),
+                                         llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
     enableOpenMPGPU("fopenmp-is-gpu",
                     llvm::cl::desc("enable openmp GPU target codegen"),
                     llvm::cl::init(false));
@@ -258,7 +263,8 @@ createTargetMachine(llvm::StringRef targetTriple, std::string &error) {
 static mlir::LogicalResult runOpenMPPasses(mlir::ModuleOp mlirModule) {
   mlir::PassManager pm(mlirModule->getName(),
                        mlir::OpPassManager::Nesting::Implicit);
-  fir::createOpenMPFIRPassPipeline(pm, enableOpenMPDevice);
+  fir::createOpenMPFIRPassPipeline(pm, enableOpenMPDevice,
+                                   enableDoConcurrentToOpenMPConversion);
   (void)mlir::applyPassManagerCLOptions(pm);
   if (mlir::failed(pm.run(mlirModule))) {
     llvm::errs() << "FATAL: failed to correctly apply OpenMP pass pipeline";

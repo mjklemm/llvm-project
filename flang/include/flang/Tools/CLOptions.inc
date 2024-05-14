@@ -333,8 +333,11 @@ inline void createHLFIRToFIRPassPipeline(
 /// \param pm - MLIR pass manager that will hold the pipeline definition.
 /// \param isTargetDevice - Whether code is being generated for a target device
 /// rather than the host device.
-inline void createOpenMPFIRPassPipeline(
-    mlir::PassManager &pm, bool isTargetDevice) {
+inline void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
+    bool isTargetDevice, bool enableDoConcurrentConversion) {
+  if (enableDoConcurrentConversion)
+    pm.addPass(fir::createDoConcurrentConversionPass(isTargetDevice));
+
   pm.addPass(fir::createOMPMapInfoFinalizationPass());
   pm.addPass(fir::createOMPMarkDeclareTargetPass());
   if (isTargetDevice)
