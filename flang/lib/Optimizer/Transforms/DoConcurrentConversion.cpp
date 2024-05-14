@@ -232,6 +232,7 @@ private:
     return Fortran::lower::omp::createMapInfoOp(
         rewriter, liveIn.getLoc(), declareOp.getBase(), /*varPtrPtr=*/{},
         declareOp.getUniqName().str(), boundsOps, /*members=*/{},
+        /*membersIndex=*/mlir::DenseIntElementsAttr{},
         static_cast<
             std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
             mapFlag),
