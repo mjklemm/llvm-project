@@ -38,6 +38,7 @@ namespace fir {
 #define GEN_PASS_DECL_ARRAYVALUECOPY
 #define GEN_PASS_DECL_CHARACTERCONVERSION
 #define GEN_PASS_DECL_CFGCONVERSION
+#define GEN_PASS_DECL_DOCONCURRENTCONVERSIONPASS
 #define GEN_PASS_DECL_EXTERNALNAMECONVERSION
 #define GEN_PASS_DECL_MEMREFDATAFLOWOPT
 #define GEN_PASS_DECL_SIMPLIFYINTRINSICS
@@ -88,7 +89,7 @@ createFunctionAttrPass(FunctionAttrTypes &functionAttr, bool noInfsFPMath,
                        bool noNaNsFPMath, bool approxFuncFPMath,
                        bool noSignedZerosFPMath, bool unsafeFPMath);
 
-std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass();
+std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
 
 void populateCfgConversionRewrites(mlir::RewritePatternSet &patterns,
                                    bool forceLoopToExecuteOnce = false);

@@ -139,6 +139,12 @@ static llvm::cl::opt<bool>
                        llvm::cl::desc("enable openmp device compilation"),
                        llvm::cl::init(false));
 
+static llvm::cl::opt<std::string> enableDoConcurrentToOpenMPConversion(
+    "fdo-concurrent-parallel",
+    llvm::cl::desc(
+        "Try to map `do concurrent` loops to OpenMP [none|host|device]"),
+    llvm::cl::init("none"));
+
 static llvm::cl::opt<bool>
     enableOpenMPGPU("fopenmp-is-gpu",
                     llvm::cl::desc("enable openmp GPU target codegen"),
@@ -258,7 +264,18 @@ createTargetMachine(llvm::StringRef targetTriple, std::string &error) {
 static mlir::LogicalResult runOpenMPPasses(mlir::ModuleOp mlirModule) {
   mlir::PassManager pm(mlirModule->getName(),
                        mlir::OpPassManager::Nesting::Implicit);
-  fir::createOpenMPFIRPassPipeline(pm, enableOpenMPDevice);
+  using DoConcurrentMappingKind =
+      Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
+
+  auto doConcurrentMappingKind =
+      llvm::StringSwitch<DoConcurrentMappingKind>(
+          enableDoConcurrentToOpenMPConversion)
+          .Case("host", DoConcurrentMappingKind::DCMK_Host)
+          .Case("device", DoConcurrentMappingKind::DCMK_Device)
+          .Default(DoConcurrentMappingKind::DCMK_None);
+
+  fir::createOpenMPFIRPassPipeline(pm, enableOpenMPDevice,
+                                   doConcurrentMappingKind);
   (void)mlir::applyPassManagerCLOptions(pm);
   if (mlir::failed(pm.run(mlirModule))) {
     llvm::errs() << "FATAL: failed to correctly apply OpenMP pass pipeline";

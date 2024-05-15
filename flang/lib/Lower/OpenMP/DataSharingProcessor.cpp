@@ -12,7 +12,7 @@
 
 #include "DataSharingProcessor.h"
 
-#include "Utils.h"
+#include "flang/Lower/OpenMP/Utils.h"
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Lower/SymbolMap.h"
 #include "flang/Optimizer/Builder/HLFIRTools.h"
