@@ -264,8 +264,8 @@ createTargetMachine(llvm::StringRef targetTriple, std::string &error) {
 static mlir::LogicalResult runOpenMPPasses(mlir::ModuleOp mlirModule) {
   mlir::PassManager pm(mlirModule->getName(),
                        mlir::OpPassManager::Nesting::Implicit);
-using DoConcurrentMappingKind =
-    Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
+  using DoConcurrentMappingKind =
+      Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
 
   auto doConcurrentMappingKind =
       llvm::StringSwitch<DoConcurrentMappingKind>(
