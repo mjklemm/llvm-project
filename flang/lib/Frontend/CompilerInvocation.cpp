@@ -167,8 +167,9 @@ static bool parseDoConcurrentMapping(Fortran::frontend::CodeGenOptions &opts,
   std::optional<DoConcurrentMappingKind> val =
       llvm::StringSwitch<std::optional<DoConcurrentMappingKind>>(
           arg->getValue())
-          .Case("disable", DoConcurrentMappingKind::DCMK_Disable)
-          .Case("enable", DoConcurrentMappingKind::DCMK_Enable)
+          .Case("none", DoConcurrentMappingKind::DCMK_None)
+          .Case("host", DoConcurrentMappingKind::DCMK_Host)
+          .Case("device", DoConcurrentMappingKind::DCMK_Device)
           .Default(std::nullopt);
 
   if (!val.has_value()) {

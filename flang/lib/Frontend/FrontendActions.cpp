@@ -329,7 +329,7 @@ bool CodeGenAction::beginSourceFileAction() {
   DoConcurrentMappingKind doConcurrentMappingKind =
       ci.getInvocation().getCodeGenOpts().getDoConcurrentMapping();
 
-  if (doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_Disable &&
+  if (doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None &&
       !isOpenMPEnabled) {
     unsigned diagID = ci.getDiagnostics().getCustomDiagID(
         clang::DiagnosticsEngine::Warning,
@@ -347,9 +347,7 @@ bool CodeGenAction::beginSourceFileAction() {
     // WARNING: This pipeline must be run immediately after the lowering to
     // ensure that the FIR is correct with respect to OpenMP operations/
     // attributes.
-    fir::createOpenMPFIRPassPipeline(pm, isDevice,
-                                     doConcurrentMappingKind ==
-                                         DoConcurrentMappingKind::DCMK_Enable);
+    fir::createOpenMPFIRPassPipeline(pm, isDevice, doConcurrentMappingKind);
   }
 
   pm.enableVerifier(/*verifyPasses=*/true);

@@ -324,6 +324,9 @@ inline void createHLFIRToFIRPassPipeline(
   pm.addPass(hlfir::createConvertHLFIRtoFIRPass());
 }
 
+using DoConcurrentMappingKind =
+    Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
+
 /// Create a pass pipeline for handling certain OpenMP transformations needed
 /// prior to FIR lowering.
 ///
@@ -334,9 +337,10 @@ inline void createHLFIRToFIRPassPipeline(
 /// \param isTargetDevice - Whether code is being generated for a target device
 /// rather than the host device.
 inline void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
-    bool isTargetDevice, bool enableDoConcurrentConversion) {
-  if (enableDoConcurrentConversion)
-    pm.addPass(fir::createDoConcurrentConversionPass(isTargetDevice));
+    bool isTargetDevice, DoConcurrentMappingKind doConcurrentMappingKind) {
+  if (doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None)
+    pm.addPass(fir::createDoConcurrentConversionPass(
+        doConcurrentMappingKind == DoConcurrentMappingKind::DCMK_Device));
 
   pm.addPass(fir::createOMPMapInfoFinalizationPass());
   pm.addPass(fir::createOMPMarkDeclareTargetPass());

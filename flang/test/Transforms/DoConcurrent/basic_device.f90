@@ -1,12 +1,9 @@
 ! Tests mapping of a basic `do concurrent` loop to
 ! `!$omp target teams distribute parallel do`.
 
-! RUN: %flang_fc1 -emit-hlfir -fopenmp -fopenmp-is-target-device \
-! RUN:   -fdo-concurrent-parallel=enable %s -o - \
+! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %s -o - \
 ! RUN:   | FileCheck %s
-
-! RUN: bbc -emit-hlfir -fopenmp -fopenmp-is-target-device  \
-! RUN:   -fopenmp-do-concurrent-parallel %s -o - \
+! RUN: bbc -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %s -o - \
 ! RUN:   | FileCheck %s
 
 ! CHECK-LABEL: do_concurrent_basic
