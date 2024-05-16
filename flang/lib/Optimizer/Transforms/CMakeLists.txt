@@ -24,10 +24,6 @@ add_flang_library(FIRTransforms
   FunctionAttr.cpp
   DebugTypeGenerator.cpp
   DoConcurrentConversion.cpp
-  # TODO Find a cleaner solution for this. This is a workaround to expose 
-  # `Utils.cpp` so that it be used the `DoConcurrentConversion` pass. We should
-  # probably split this is a shared lib.
-  ../../Lower/OpenMP/Utils.cpp
 
   DEPENDS
   FIRDialect
