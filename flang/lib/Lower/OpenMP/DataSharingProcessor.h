@@ -51,6 +51,8 @@ private:
 
   bool useDelayedPrivatization;
   lower::SymMap *symTable;
+  mlir::omp::PrivateClauseOps privateClauseOps;
+  llvm::SmallVector<const semantics::Symbol *> privateSyms;
 
   bool needBarrier();
   void collectSymbols(semantics::Symbol::Flag flag,
@@ -65,18 +67,10 @@ private:
   void insertBarrier();
   void collectDefaultSymbols();
   void collectImplicitSymbols();
-  void privatize(mlir::omp::PrivateClauseOps *clauseOps,
-                 llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms);
-  void defaultPrivatize(
-      mlir::omp::PrivateClauseOps *clauseOps,
-      llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms);
-  void implicitPrivatize(
-      mlir::omp::PrivateClauseOps *clauseOps,
-      llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms);
-  void
-  doPrivatize(const semantics::Symbol *sym,
-              mlir::omp::PrivateClauseOps *clauseOps,
-              llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms);
+  void privatize();
+  void defaultPrivatize();
+  void implicitPrivatize();
+  void doPrivatize(const semantics::Symbol *sym);
   void copyLastPrivatize(mlir::Operation *op);
   void insertLastPrivateCompare(mlir::Operation *op);
   void cloneSymbol(const semantics::Symbol *sym);
@@ -123,9 +117,7 @@ public:
   // before the operation is created since the bounds of the MLIR OpenMP
   // operation can be privatised.
   void processStep1();
-  void processStep2(
-      mlir::omp::PrivateClauseOps *clauseOps = nullptr,
-      llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms = nullptr);
+  void processStep2();
   void processStep3(mlir::Operation *op, bool isLoop);
 
   void setLoopIV(mlir::Value iv) {
@@ -133,9 +125,16 @@ public:
     loopIV = iv;
   }
 
-  const llvm::SetVector<const Fortran::semantics::Symbol *> &
-  getPrivatizedSymbols() const {
-    return privatizedSymbols;
+  bool isSymbolPrivatized(const semantics::Symbol &sym) const {
+    return privatizedSymbols.contains(&sym);
+  }
+
+  const mlir::omp::PrivateClauseOps &getPrivateClauseOps() const {
+    return privateClauseOps;
+  }
+
+  llvm::ArrayRef<const semantics::Symbol *> getPrivateSyms() const {
+    return privateSyms;
   }
 };
 

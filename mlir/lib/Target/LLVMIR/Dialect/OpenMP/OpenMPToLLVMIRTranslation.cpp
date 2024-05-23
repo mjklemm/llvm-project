@@ -3059,9 +3059,13 @@ static LogicalResult convertOmpDistribute(
     // omp.parallel
     auto IP = builder.saveIP();
     if (ompBuilder->Config.isGPU()) {
+      // TODO: Consider passing the isByref array together with reductionInfos
+      // if it needs to match nested parallel-do or simd.
+      SmallVector<bool> isByref(reductionInfos.size(), true);
       llvm::OpenMPIRBuilder::InsertPointTy contInsertPoint =
-          ompBuilder->createReductions(IP, allocaIP, reductionInfos, false,
-                                       true, true);
+          ompBuilder->createReductions(IP, allocaIP, reductionInfos, isByref,
+                                       /*IsNoWait=*/false,
+                                       /*IsTeamsReduction=*/true);
       builder.restoreIP(contInsertPoint);
     }
   };
@@ -3895,36 +3899,30 @@ Block &getContainedBlock(OpType op) {
   return region.front();
 }
 
-template <typename... OpTypes>
-bool matchOpNest(Operation *op, OpTypes... matchOp) {
-  return true;
-}
-
-template <typename... OpTypes>
-bool matchOpNestScan(Block &op, OpTypes... matchOp) {
-  return true;
-}
-
 template <typename FirstOpType, typename... RestOpTypes>
-bool matchOpNest(Operation *op, FirstOpType &firstOp, RestOpTypes... restOps) {
-  if (auto firstOp = mlir::dyn_cast<FirstOpType>(op)) {
-    if (sizeof...(RestOpTypes) == 0)
-      return true;
-    Block &innerBlock = getContainedBlock(firstOp);
-    return matchOpNestScan(innerBlock, restOps...);
+bool matchOpScanNest(Block &block, FirstOpType &firstOp,
+                     RestOpTypes &...restOps) {
+  for (Operation &op : block) {
+    if ((firstOp = mlir::dyn_cast<FirstOpType>(op))) {
+      if constexpr (sizeof...(RestOpTypes) == 0) {
+        return true;
+      } else {
+        Block &innerBlock = getContainedBlock(firstOp);
+        return matchOpScanNest(innerBlock, restOps...);
+      }
+    }
   }
   return false;
 }
 
 template <typename FirstOpType, typename... RestOpTypes>
-bool matchOpScanNest(Block &block, FirstOpType &firstOp,
-                     RestOpTypes... restOps) {
-  for (Operation *op : block) {
-    if (auto firstOp = mlir::dyn_cast<FirstOpType>(op)) {
-      if (sizeof...(RestOpTypes) == 0)
-        return true;
+bool matchOpNest(Operation *op, FirstOpType &firstOp, RestOpTypes &...restOps) {
+  if ((firstOp = mlir::dyn_cast<FirstOpType>(op))) {
+    if constexpr (sizeof...(RestOpTypes) == 0) {
+      return true;
+    } else {
       Block &innerBlock = getContainedBlock(firstOp);
-      return matchOpNestScan(innerBlock, restOps...);
+      return matchOpScanNest(innerBlock, restOps...);
     }
   }
   return false;

@@ -29,14 +29,13 @@ void DataSharingProcessor::processStep1() {
   collectImplicitSymbols();
 }
 
-void DataSharingProcessor::processStep2(mlir::omp::PrivateClauseOps *clauseOps,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms) {
+void DataSharingProcessor::processStep2() {
   if (privatizationDone)
     return;
 
-  privatize(clauseOps, privateSyms);
-  defaultPrivatize(clauseOps, privateSyms);
-  implicitPrivatize(clauseOps, privateSyms);
+  privatize();
+  defaultPrivatize();
+  implicitPrivatize();
   insertBarrier();
 
   privatizationDone = true;
@@ -367,16 +366,14 @@ void DataSharingProcessor::collectImplicitSymbols() {
     collectSymbols(semantics::Symbol::Flag::OmpImplicit, implicitSymbols);
 }
 
-void DataSharingProcessor::privatize(
-    mlir::omp::PrivateClauseOps *clauseOps,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms) {
+void DataSharingProcessor::privatize() {
   for (const semantics::Symbol *sym : privatizedSymbols) {
     if (const auto *commonDet =
             sym->detailsIf<semantics::CommonBlockDetails>()) {
       for (const auto &mem : commonDet->objects())
-        doPrivatize(&*mem, clauseOps, privateSyms);
+        doPrivatize(&*mem);
     } else
-      doPrivatize(sym, clauseOps, privateSyms);
+      doPrivatize(sym);
   }
 }
 
@@ -393,23 +390,17 @@ void DataSharingProcessor::copyLastPrivatize(mlir::Operation *op) {
     }
 }
 
-void DataSharingProcessor::defaultPrivatize(
-    mlir::omp::PrivateClauseOps *clauseOps,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms) {
+void DataSharingProcessor::defaultPrivatize() {
   for (const semantics::Symbol *sym : defaultSymbols)
-    doPrivatize(sym, clauseOps, privateSyms);
+    doPrivatize(sym);
 }
 
-void DataSharingProcessor::implicitPrivatize(
-    mlir::omp::PrivateClauseOps *clauseOps,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms) {
+void DataSharingProcessor::implicitPrivatize() {
   for (const semantics::Symbol *sym : implicitSymbols)
-    doPrivatize(sym, clauseOps, privateSyms);
+    doPrivatize(sym);
 }
 
-void DataSharingProcessor::doPrivatize(
-    const semantics::Symbol *sym, mlir::omp::PrivateClauseOps *clauseOps,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *privateSyms) {
+void DataSharingProcessor::doPrivatize(const semantics::Symbol *sym) {
   if (!useDelayedPrivatization) {
     cloneSymbol(sym);
     copyFirstPrivateSymbol(sym);
@@ -509,13 +500,10 @@ void DataSharingProcessor::doPrivatize(
     return result;
   }();
 
-  if (clauseOps) {
-    clauseOps->privatizers.push_back(mlir::SymbolRefAttr::get(privatizerOp));
-    clauseOps->privateVars.push_back(hsb.getAddr());
-  }
-
-  if (privateSyms)
-    privateSyms->push_back(sym);
+  privateClauseOps.privatizers.push_back(
+      mlir::SymbolRefAttr::get(privatizerOp));
+  privateClauseOps.privateVars.push_back(hsb.getAddr());
+  privateSyms.push_back(sym);
 
   symToPrivatizer[sym] = privatizerOp;
 }

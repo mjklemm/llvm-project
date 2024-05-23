@@ -1123,7 +1123,7 @@ static void genSingleClauses(lower::AbstractConverter &converter,
 static void genTargetClauses(
     lower::AbstractConverter &converter, semantics::SemanticsContext &semaCtx,
     lower::StatementContext &stmtCtx, const List<Clause> &clauses,
-    mlir::Location loc, bool processHostOnlyClauses, bool processReduction,
+    mlir::Location loc, bool processHostOnlyClauses,
     mlir::omp::TargetClauseOps &clauseOps,
     llvm::SmallVectorImpl<const semantics::Symbol *> &mapSyms,
     llvm::SmallVectorImpl<mlir::Location> &mapLocs,
@@ -1133,8 +1133,7 @@ static void genTargetClauses(
     llvm::SmallVectorImpl<mlir::Type> &deviceAddrTypes,
     llvm::SmallVectorImpl<const semantics::Symbol *> &devicePtrSyms,
     llvm::SmallVectorImpl<mlir::Location> &devicePtrLocs,
-    llvm::SmallVectorImpl<mlir::Type> &devicePtrTypes,
-    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &reductionSyms) {
+    llvm::SmallVectorImpl<mlir::Type> &devicePtrTypes) {
   ClauseProcessor cp(converter, semaCtx, clauses);
   cp.processDepend(clauseOps);
   cp.processDevice(stmtCtx, clauseOps);
@@ -1147,9 +1146,6 @@ static void genTargetClauses(
 
   if (processHostOnlyClauses)
     cp.processNowait(clauseOps);
-
-  if (processReduction)
-    cp.processTargetReduction(reductionSyms);
 
   cp.processThreadLimit(stmtCtx, clauseOps);
   // TODO Support delayed privatization.
@@ -1342,11 +1338,11 @@ genCriticalOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 }
 
 static mlir::omp::DistributeOp
-genDistributeOp(lower::AbstractConverter &converter,
-                semantics::SemanticsContext &semaCtx,
-                lower::pft::Evaluation &eval, mlir::Location loc,
-                const mlir::omp::DistributeClauseOps &clauseOps,
-                DataSharingProcessor &dsp) {
+genDistributeWrapperOp(lower::AbstractConverter &converter,
+                       semantics::SemanticsContext &semaCtx,
+                       lower::pft::Evaluation &eval, mlir::Location loc,
+                       const mlir::omp::DistributeClauseOps &clauseOps,
+                       DataSharingProcessor &dsp) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   // Create omp.distribute wrapper.
@@ -1357,7 +1353,7 @@ genDistributeOp(lower::AbstractConverter &converter,
   firOpBuilder.createBlock(&distributeOp.getRegion());
 
   firOpBuilder.setInsertionPoint(
-      Fortran::lower::genOpenMPTerminator(firOpBuilder, distributeOp, loc));
+      lower::genOpenMPTerminator(firOpBuilder, distributeOp, loc));
 
   return distributeOp;
 }
@@ -1376,21 +1372,20 @@ genFlushOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 }
 
 static mlir::omp::LoopNestOp
-genLoopNestOp(Fortran::lower::AbstractConverter &converter,
-              lower::SymMap &symTable,
-              Fortran::semantics::SemanticsContext &semaCtx,
-              Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
+genLoopNestOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
+              semantics::SemanticsContext &semaCtx,
+              lower::pft::Evaluation &eval, mlir::Location loc,
               const ConstructQueue &queue, ConstructQueue::iterator item,
               mlir::omp::LoopNestClauseOps &clauseOps,
-              llvm::ArrayRef<const Fortran::semantics::Symbol *> iv,
-              llvm::ArrayRef<const Fortran::semantics::Symbol *> wrapperSyms,
+              llvm::ArrayRef<const semantics::Symbol *> iv,
+              llvm::ArrayRef<const semantics::Symbol *> wrapperSyms,
               llvm::ArrayRef<mlir::BlockArgument> wrapperArgs,
               llvm::omp::Directive directive, DataSharingProcessor &dsp) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   auto ivCallback = [&](mlir::Operation *op) {
     genLoopVars(op, converter, loc, iv, wrapperSyms, wrapperArgs);
-    return llvm::SmallVector<const Fortran::semantics::Symbol *>(iv);
+    return llvm::SmallVector<const semantics::Symbol *>(iv);
   };
 
   auto *nestedEval =
@@ -1416,7 +1411,7 @@ genLoopNestOp(Fortran::lower::AbstractConverter &converter,
     // LLVM IR via the OMPIRBuilder.
     HostClausesInsertionGuard guard(firOpBuilder);
     mlir::omp::CollapseClauseOps collapseClauseOps;
-    llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+    llvm::SmallVector<const semantics::Symbol *> iv;
     ClauseProcessor cp(converter, semaCtx, item->clauses);
     cp.processCollapse(loc, eval, collapseClauseOps, iv);
     targetOp.getTripCountMutable().assign(calculateTripCount(
@@ -1429,10 +1424,12 @@ static mlir::omp::MasterOp
 genMasterOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
             mlir::Location loc, const ConstructQueue &queue,
-            ConstructQueue::iterator item, DataSharingProcessor *dsp = nullptr) {
+            ConstructQueue::iterator item,
+            DataSharingProcessor *dsp = nullptr) {
   return genOpWithBody<mlir::omp::MasterOp>(
       OpWithBodyGenInfo(converter, symTable, semaCtx, loc, eval,
-                        llvm::omp::Directive::OMPD_master).setDataSharingProcessor(dsp),
+                        llvm::omp::Directive::OMPD_master)
+          .setDataSharingProcessor(dsp),
       queue, item);
 }
 
@@ -1459,17 +1456,17 @@ genOrderedRegionOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
       queue, item, clauseOps);
 }
 
-static mlir::omp::ParallelOp genParallelOp(
-    lower::AbstractConverter &converter, lower::SymMap &symTable,
-    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
-    bool loopWrapper, mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, mlir::omp::ParallelClauseOps &clauseOps,
-    mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
-    llvm::ArrayRef<const Fortran::semantics::Symbol *> reductionSyms,
-    llvm::ArrayRef<mlir::Type> reductionTypes,
-    llvm::ArrayRef<const Fortran::semantics::Symbol *> privateSyms,
-    mlir::omp::TargetOp parentTarget = nullptr, bool outerCombined = false,
-    DataSharingProcessor *dsp = nullptr) {
+static mlir::omp::ParallelOp
+genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
+              semantics::SemanticsContext &semaCtx,
+              lower::pft::Evaluation &eval, mlir::Location loc,
+              const ConstructQueue &queue, ConstructQueue::iterator item,
+              mlir::omp::ParallelClauseOps &clauseOps,
+              mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
+              llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
+              llvm::ArrayRef<mlir::Type> reductionTypes,
+              mlir::omp::TargetOp parentTarget = nullptr,
+              bool outerCombined = false, DataSharingProcessor *dsp = nullptr) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   auto reductionCallback = [&](mlir::Operation *op) {
@@ -1479,12 +1476,10 @@ static mlir::omp::ParallelOp genParallelOp(
         &op->getRegion(0), {}, reductionTypes, blockArgLocs);
 
     // Bind the reduction arguments to their block arguments.
-    if (!loopWrapper) {
-      for (auto [arg, prv] :
-           llvm::zip_equal(reductionSyms, entryBlock->getArguments()))
-        converter.bindSymbol(*arg, prv);
-    }
-    return llvm::SmallVector<const Fortran::semantics::Symbol *>(reductionSyms);
+    for (auto [arg, prv] :
+         llvm::zip_equal(reductionSyms, entryBlock->getArguments()))
+      converter.bindSymbol(*arg, prv);
+    return llvm::SmallVector<const semantics::Symbol *>(reductionSyms);
   };
 
   OpWithBodyGenInfo genInfo =
@@ -1532,20 +1527,20 @@ static mlir::omp::ParallelOp genParallelOp(
     firOpBuilder.createBlock(&region, /*insertPt=*/{}, privateVarTypes,
                              privateVarLocs);
 
+    llvm::ArrayRef<const semantics::Symbol *> privateSyms;
+    if (dsp)
+      privateSyms = dsp->getPrivateSyms();
     llvm::SmallVector<const semantics::Symbol *> allSymbols(reductionSyms);
     allSymbols.append(privateSyms.begin(), privateSyms.end());
 
-    if (!loopWrapper) {
-      for (auto [arg, prv] :
-           llvm::zip_equal(allSymbols, region.getArguments())) {
-        fir::ExtendedValue hostExV = converter.getSymbolExtendedValue(*arg);
-        converter.bindSymbol(*arg, hlfir::translateToExtendedValue(
-                                       loc, firOpBuilder, hlfir::Entity{prv},
-                                       /*contiguousHint=*/
-                                       evaluate::IsSimplyContiguous(
-                                           *arg, converter.getFoldingContext()))
-                                       .first);
-      }
+    for (auto [arg, prv] : llvm::zip_equal(allSymbols, region.getArguments())) {
+      fir::ExtendedValue hostExV = converter.getSymbolExtendedValue(*arg);
+      converter.bindSymbol(*arg, hlfir::translateToExtendedValue(
+                                     loc, firOpBuilder, hlfir::Entity{prv},
+                                     /*contiguousHint=*/
+                                     evaluate::IsSimplyContiguous(
+                                         *arg, converter.getFoldingContext()))
+                                     .first);
     }
 
     return allSymbols;
@@ -1562,6 +1557,51 @@ static mlir::omp::ParallelOp genParallelOp(
       parallelOp.getNumThreadsVarMutable().assign(
           numThreadsClauseOps.numThreadsVar);
   }
+  return parallelOp;
+}
+
+static mlir::omp::ParallelOp genParallelWrapperOp(
+    lower::AbstractConverter &converter, semantics::SemanticsContext &semaCtx,
+    lower::pft::Evaluation &eval, mlir::Location loc,
+    const mlir::omp::ParallelClauseOps &clauseOps,
+    mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
+    llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
+    llvm::ArrayRef<mlir::Type> reductionTypes, mlir::omp::TargetOp parentTarget,
+    DataSharingProcessor &dsp) {
+  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
+
+  // Create omp.parallel wrapper.
+  auto parallelOp = firOpBuilder.create<mlir::omp::ParallelOp>(loc, clauseOps);
+
+  if (numThreadsClauseOps.numThreadsVar) {
+    if (parentTarget)
+      parentTarget.getNumThreadsMutable().assign(
+          numThreadsClauseOps.numThreadsVar);
+    else
+      parallelOp.getNumThreadsVarMutable().assign(
+          numThreadsClauseOps.numThreadsVar);
+  }
+
+  // Populate entry block arguments with reduction and private variables.
+  mlir::OperandRange privateVars = parallelOp.getPrivateVars();
+
+  llvm::SmallVector<mlir::Type> blockArgTypes(reductionTypes.begin(),
+                                              reductionTypes.end());
+  blockArgTypes.reserve(blockArgTypes.size() + privateVars.size());
+  llvm::transform(privateVars, std::back_inserter(blockArgTypes),
+                  [](mlir::Value v) { return v.getType(); });
+
+  llvm::SmallVector<mlir::Location> blockArgLocs(reductionTypes.size(), loc);
+  blockArgLocs.reserve(blockArgLocs.size() + privateVars.size());
+  llvm::transform(privateVars, std::back_inserter(blockArgLocs),
+                  [](mlir::Value v) { return v.getLoc(); });
+
+  firOpBuilder.createBlock(&parallelOp.getRegion(), {}, blockArgTypes,
+                           blockArgLocs);
+
+  firOpBuilder.setInsertionPoint(
+      lower::genOpenMPTerminator(firOpBuilder, parallelOp, loc));
+
   return parallelOp;
 }
 
@@ -1660,11 +1700,12 @@ genSectionsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   return sectionsOp;
 }
 
-static mlir::omp::SimdOp
-genSimdOp(Fortran::lower::AbstractConverter &converter,
-          Fortran::semantics::SemanticsContext &semaCtx,
-          Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-          mlir::omp::SimdClauseOps &clauseOps, DataSharingProcessor &dsp) {
+static mlir::omp::SimdOp genSimdWrapperOp(lower::AbstractConverter &converter,
+                                          semantics::SemanticsContext &semaCtx,
+                                          lower::pft::Evaluation &eval,
+                                          mlir::Location loc,
+                                          mlir::omp::SimdClauseOps &clauseOps,
+                                          DataSharingProcessor &dsp) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   // Create omp.simd wrapper.
@@ -1709,14 +1750,13 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 
   mlir::omp::TargetClauseOps clauseOps;
   llvm::SmallVector<const semantics::Symbol *> mapSyms, devicePtrSyms,
-      deviceAddrSyms, reductionSyms;
+      deviceAddrSyms;
   llvm::SmallVector<mlir::Location> mapLocs, devicePtrLocs, deviceAddrLocs;
   llvm::SmallVector<mlir::Type> mapTypes, devicePtrTypes, deviceAddrTypes;
   genTargetClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
-                   processHostOnlyClauses, /*processReduction=*/outerCombined,
-                   clauseOps, mapSyms, mapLocs, mapTypes, deviceAddrSyms,
-                   deviceAddrLocs, deviceAddrTypes, devicePtrSyms,
-                   devicePtrLocs, devicePtrTypes, reductionSyms);
+                   processHostOnlyClauses, clauseOps, mapSyms, mapLocs,
+                   mapTypes, deviceAddrSyms, deviceAddrLocs, deviceAddrTypes,
+                   devicePtrSyms, devicePtrLocs, devicePtrTypes);
 
   // 5.8.1 Implicit Data-Mapping Attribute Rules
   // The following code follows the implicit data-mapping rules to map all the
@@ -1783,10 +1823,6 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
             mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
           }
-        } else if (llvm::find(reductionSyms, &sym) != reductionSyms.end()) {
-          // Do a tofrom map for reduction variables.
-          mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
-          mapFlag |= llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
         } else if (fir::isa_trivial(eleType) || fir::isa_char(eleType)) {
           captureKind = mlir::omp::VariableCaptureKind::ByCopy;
         } else if (!fir::isa_builtin_cptr_type(eleType)) {
@@ -1900,12 +1936,10 @@ genTaskgroupOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
       queue, item, clauseOps);
 }
 
-static mlir::omp::TaskloopOp genTaskloopOp(lower::AbstractConverter &converter,
-                                           semantics::SemanticsContext &semaCtx,
-                                           lower::pft::Evaluation &eval,
-                                           mlir::Location loc,
-                                           const ConstructQueue &queue,
-                                           ConstructQueue::iterator item) {
+static mlir::omp::TaskloopOp genTaskloopWrapperOp(
+    lower::AbstractConverter &converter, semantics::SemanticsContext &semaCtx,
+    lower::pft::Evaluation &eval, mlir::Location loc,
+    const ConstructQueue &queue, ConstructQueue::iterator item) {
   TODO(loc, "Taskloop construct");
 }
 
@@ -1978,13 +2012,12 @@ genTeamsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   return teamsOp;
 }
 
-static mlir::omp::WsloopOp
-genWsloopOp(lower::AbstractConverter &converter,
-            semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
-            mlir::Location loc, const mlir::omp::WsloopClauseOps &clauseOps,
-            llvm::ArrayRef<const Fortran::semantics::Symbol *> reductionSyms,
-            llvm::ArrayRef<mlir::Type> reductionTypes,
-            DataSharingProcessor &dsp) {
+static mlir::omp::WsloopOp genWsloopWrapperOp(
+    lower::AbstractConverter &converter, semantics::SemanticsContext &semaCtx,
+    lower::pft::Evaluation &eval, mlir::Location loc,
+    const mlir::omp::WsloopClauseOps &clauseOps,
+    llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
+    llvm::ArrayRef<mlir::Type> reductionTypes, DataSharingProcessor &dsp) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   // Create omp.wsloop wrapper.
@@ -1996,7 +2029,7 @@ genWsloopOp(lower::AbstractConverter &converter,
                            reductionLocs);
 
   firOpBuilder.setInsertionPoint(
-      Fortran::lower::genOpenMPTerminator(firOpBuilder, wsloopOp, loc));
+      lower::genOpenMPTerminator(firOpBuilder, wsloopOp, loc));
 
   return wsloopOp;
 }
@@ -2007,21 +2040,20 @@ genWsloopOp(lower::AbstractConverter &converter,
 //===----------------------------------------------------------------------===//
 
 static void genStandaloneDistribute(
-    Fortran::lower::AbstractConverter &converter, lower::SymMap &symTable,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-    const ConstructQueue &queue, ConstructQueue::iterator item,
-    DataSharingProcessor &dsp) {
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
   mlir::omp::DistributeClauseOps distributeClauseOps;
   // TODO: Process DISTRIBUTE clauses
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
-  auto distributeOp =
-      genDistributeOp(converter, semaCtx, eval, loc, distributeClauseOps, dsp);
+  auto distributeOp = genDistributeWrapperOp(converter, semaCtx, eval, loc,
+                                             distributeClauseOps, dsp);
 
   genLoopNestOp(converter, symTable, semaCtx, eval, loc, queue, item,
                 loopNestClauseOps, iv,
@@ -2029,28 +2061,29 @@ static void genStandaloneDistribute(
                 llvm::omp::Directive::OMPD_distribute, dsp);
 }
 
-static void genStandaloneDo(Fortran::lower::AbstractConverter &converter,
+static void genStandaloneDo(lower::AbstractConverter &converter,
                             lower::SymMap &symTable,
-                            Fortran::semantics::SemanticsContext &semaCtx,
-                            Fortran::lower::pft::Evaluation &eval,
-                            mlir::Location loc, const ConstructQueue &queue,
+                            semantics::SemanticsContext &semaCtx,
+                            lower::pft::Evaluation &eval, mlir::Location loc,
+                            const ConstructQueue &queue,
                             ConstructQueue::iterator item,
                             DataSharingProcessor &dsp) {
-  Fortran::lower::StatementContext stmtCtx;
+  lower::StatementContext stmtCtx;
 
   mlir::omp::WsloopClauseOps wsloopClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> reductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> reductionSyms;
   llvm::SmallVector<mlir::Type> reductionTypes;
   genWsloopClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                    wsloopClauseOps, reductionTypes, reductionSyms);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
-  auto wsloopOp = genWsloopOp(converter, semaCtx, eval, loc, wsloopClauseOps,
-                              reductionSyms, reductionTypes, dsp);
+  auto wsloopOp =
+      genWsloopWrapperOp(converter, semaCtx, eval, loc, wsloopClauseOps,
+                         reductionSyms, reductionTypes, dsp);
 
   genLoopNestOp(converter, symTable, semaCtx, eval, loc, queue, item,
                 loopNestClauseOps, iv, reductionSyms,
@@ -2059,12 +2092,12 @@ static void genStandaloneDo(Fortran::lower::AbstractConverter &converter,
 }
 
 static void genStandaloneParallel(
-    Fortran::lower::AbstractConverter &converter, lower::SymMap &symTable,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-    const ConstructQueue &queue, ConstructQueue::iterator item,
-    bool outerCombined, DataSharingProcessor *dsp = nullptr) {
-  Fortran::lower::StatementContext stmtCtx;
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, bool outerCombined,
+    DataSharingProcessor *dsp = nullptr) {
+  lower::StatementContext stmtCtx;
 
   auto offloadModOp =
       llvm::cast<mlir::omp::OffloadModuleInterface>(*converter.getModuleOp());
@@ -2075,7 +2108,7 @@ static void genStandaloneParallel(
 
   mlir::omp::ParallelClauseOps parallelClauseOps;
   mlir::omp::NumThreadsClauseOps numThreadsClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> reductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> reductionSyms;
   llvm::SmallVector<mlir::Type> reductionTypes;
   genParallelClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                      /*processReduction=*/!outerCombined, evalOutsideTarget,
@@ -2087,30 +2120,29 @@ static void genStandaloneParallel(
     parallelClauseOps.privatizers = privateClauseOps.privatizers;
   }
 
-  genParallelOp(converter, symTable, semaCtx, eval, /*loopWrapper=*/false, loc,
-                queue, item, parallelClauseOps, numThreadsClauseOps,
-                reductionSyms, reductionTypes,
-                dsp ? dsp->getPrivateSyms()
-                    : llvm::ArrayRef<const semantics::Symbol *>(),
-                evalOutsideTarget ? targetOp : nullptr, outerCombined, dsp);
+  genParallelOp(converter, symTable, semaCtx, eval, loc, queue, item,
+                parallelClauseOps, numThreadsClauseOps, reductionSyms,
+                reductionTypes, evalOutsideTarget ? targetOp : nullptr,
+                outerCombined, dsp);
 }
 
-static void genStandaloneSimd(Fortran::lower::AbstractConverter &converter,
+static void genStandaloneSimd(lower::AbstractConverter &converter,
                               lower::SymMap &symTable,
-                              Fortran::semantics::SemanticsContext &semaCtx,
-                              Fortran::lower::pft::Evaluation &eval,
-                              mlir::Location loc, const ConstructQueue &queue,
+                              semantics::SemanticsContext &semaCtx,
+                              lower::pft::Evaluation &eval, mlir::Location loc,
+                              const ConstructQueue &queue,
                               ConstructQueue::iterator item,
                               DataSharingProcessor &dsp) {
   mlir::omp::SimdClauseOps simdClauseOps;
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
-  auto simdOp = genSimdOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
+  auto simdOp =
+      genSimdWrapperOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
 
   genLoopNestOp(converter, symTable, semaCtx, eval, loc, queue, item,
                 loopNestClauseOps, iv,
@@ -2118,14 +2150,11 @@ static void genStandaloneSimd(Fortran::lower::AbstractConverter &converter,
                 llvm::omp::Directive::OMPD_simd, dsp);
 }
 
-static void genStandaloneTaskloop(Fortran::lower::AbstractConverter &converter,
-                                  lower::SymMap &symTable,
-                                  Fortran::semantics::SemanticsContext &semaCtx,
-                                  Fortran::lower::pft::Evaluation &eval,
-                                  mlir::Location loc,
-                                  const ConstructQueue &queue,
-                                  ConstructQueue::iterator item,
-                                  DataSharingProcessor &dsp) {
+static void genStandaloneTaskloop(
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
   TODO(loc, "Taskloop construct");
 }
 
@@ -2134,12 +2163,11 @@ static void genStandaloneTaskloop(Fortran::lower::AbstractConverter &converter,
 //===----------------------------------------------------------------------===//
 
 static void genCompositeDistributeParallelDo(
-    Fortran::lower::AbstractConverter &converter, lower::SymMap &symTable,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-    const ConstructQueue &queue, ConstructQueue::iterator item,
-    DataSharingProcessor &dsp) {
-  Fortran::lower::StatementContext stmtCtx;
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+  lower::StatementContext stmtCtx;
 
   auto offloadModOp =
       llvm::cast<mlir::omp::OffloadModuleInterface>(*converter.getModuleOp());
@@ -2154,7 +2182,7 @@ static void genCompositeDistributeParallelDo(
 
   mlir::omp::ParallelClauseOps parallelClauseOps;
   mlir::omp::NumThreadsClauseOps numThreadsClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> parallelReductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> parallelReductionSyms;
   llvm::SmallVector<mlir::Type> parallelReductionTypes;
   genParallelClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                      /*processReduction=*/true,
@@ -2167,35 +2195,34 @@ static void genCompositeDistributeParallelDo(
   parallelClauseOps.privatizers = privateClauseOps.privatizers;
 
   mlir::omp::WsloopClauseOps wsloopClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> wsloopReductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> wsloopReductionSyms;
   llvm::SmallVector<mlir::Type> wsloopReductionTypes;
   genWsloopClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                    wsloopClauseOps, wsloopReductionTypes, wsloopReductionSyms);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
   // Operation creation.
-  auto distributeOp =
-      genDistributeOp(converter, semaCtx, eval, loc, distributeClauseOps, dsp);
+  auto distributeOp = genDistributeWrapperOp(converter, semaCtx, eval, loc,
+                                             distributeClauseOps, dsp);
 
-  auto parallelOp = genParallelOp(
-      converter, symTable, semaCtx, eval, /*loopWrapper=*/true, loc, queue,
-      item, parallelClauseOps, numThreadsClauseOps, parallelReductionSyms,
-      parallelReductionTypes, dsp.getPrivateSyms(),
-      evalOutsideTarget ? targetOp : nullptr,
-      /*outerCombined=*/false, &dsp);
+  auto parallelOp = genParallelWrapperOp(
+      converter, semaCtx, eval, loc, parallelClauseOps, numThreadsClauseOps,
+      parallelReductionSyms, parallelReductionTypes,
+      evalOutsideTarget ? targetOp : nullptr, dsp);
 
-  auto wsloopOp = genWsloopOp(converter, semaCtx, eval, loc, wsloopClauseOps,
-                              wsloopReductionSyms, wsloopReductionTypes, dsp);
+  auto wsloopOp =
+      genWsloopWrapperOp(converter, semaCtx, eval, loc, wsloopClauseOps,
+                         wsloopReductionSyms, wsloopReductionTypes, dsp);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
   // symbol-value bindings created are correct.
   auto wrapperSyms =
-      llvm::to_vector(llvm::concat<const Fortran::semantics::Symbol *const>(
+      llvm::to_vector(llvm::concat<const semantics::Symbol *const>(
           parallelReductionSyms, dsp.getPrivateSyms(), wsloopReductionSyms));
 
   auto wrapperArgs = llvm::to_vector(
@@ -2211,12 +2238,11 @@ static void genCompositeDistributeParallelDo(
 }
 
 static void genCompositeDistributeParallelDoSimd(
-    Fortran::lower::AbstractConverter &converter, lower::SymMap &symTable,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-    const ConstructQueue &queue, ConstructQueue::iterator item,
-    DataSharingProcessor &dsp) {
-  Fortran::lower::StatementContext stmtCtx;
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+  lower::StatementContext stmtCtx;
 
   auto offloadModOp =
       llvm::cast<mlir::omp::OffloadModuleInterface>(*converter.getModuleOp());
@@ -2231,7 +2257,7 @@ static void genCompositeDistributeParallelDoSimd(
 
   mlir::omp::ParallelClauseOps parallelClauseOps;
   mlir::omp::NumThreadsClauseOps numThreadsClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> parallelReductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> parallelReductionSyms;
   llvm::SmallVector<mlir::Type> parallelReductionTypes;
   genParallelClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                      /*processReduction=*/true,
@@ -2244,7 +2270,7 @@ static void genCompositeDistributeParallelDoSimd(
   parallelClauseOps.privatizers = privateClauseOps.privatizers;
 
   mlir::omp::WsloopClauseOps wsloopClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> wsloopReductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> wsloopReductionSyms;
   llvm::SmallVector<mlir::Type> wsloopReductionTypes;
   genWsloopClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                    wsloopClauseOps, wsloopReductionTypes, wsloopReductionSyms);
@@ -2253,31 +2279,31 @@ static void genCompositeDistributeParallelDoSimd(
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
   // Operation creation.
-  auto distributeOp =
-      genDistributeOp(converter, semaCtx, eval, loc, distributeClauseOps, dsp);
+  auto distributeOp = genDistributeWrapperOp(converter, semaCtx, eval, loc,
+                                             distributeClauseOps, dsp);
 
-  auto parallelOp = genParallelOp(
-      converter, symTable, semaCtx, eval, /*loopWrapper=*/true, loc, queue,
-      item, parallelClauseOps, numThreadsClauseOps, parallelReductionSyms,
-      parallelReductionTypes, dsp.getPrivateSyms(),
-      evalOutsideTarget ? targetOp : nullptr,
-      /*outerCombined=*/false, &dsp);
+  auto parallelOp = genParallelWrapperOp(
+      converter, semaCtx, eval, loc, parallelClauseOps, numThreadsClauseOps,
+      parallelReductionSyms, parallelReductionTypes,
+      evalOutsideTarget ? targetOp : nullptr, dsp);
 
-  auto wsloopOp = genWsloopOp(converter, semaCtx, eval, loc, wsloopClauseOps,
-                              wsloopReductionSyms, wsloopReductionTypes, dsp);
+  auto wsloopOp =
+      genWsloopWrapperOp(converter, semaCtx, eval, loc, wsloopClauseOps,
+                         wsloopReductionSyms, wsloopReductionTypes, dsp);
 
-  auto simdOp = genSimdOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
+  auto simdOp =
+      genSimdWrapperOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
   // symbol-value bindings created are correct.
   auto wrapperSyms =
-      llvm::to_vector(llvm::concat<const Fortran::semantics::Symbol *const>(
+      llvm::to_vector(llvm::concat<const semantics::Symbol *const>(
           parallelReductionSyms, dsp.getPrivateSyms(), wsloopReductionSyms));
 
   auto wrapperArgs = llvm::to_vector(llvm::concat<mlir::BlockArgument>(
@@ -2293,11 +2319,10 @@ static void genCompositeDistributeParallelDoSimd(
 }
 
 static void genCompositeDistributeSimd(
-    Fortran::lower::AbstractConverter &converter, lower::SymMap &symTable,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::pft::Evaluation &eval, mlir::Location loc,
-    const ConstructQueue &queue, ConstructQueue::iterator item,
-    DataSharingProcessor &dsp) {
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::Location loc, const ConstructQueue &queue,
+    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
   // Clause processing.
   mlir::omp::DistributeClauseOps distributeClauseOps;
   // TODO: Process DISTRIBUTE clauses
@@ -2306,15 +2331,16 @@ static void genCompositeDistributeSimd(
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
   // Operation creation.
-  auto distributeOp =
-      genDistributeOp(converter, semaCtx, eval, loc, distributeClauseOps, dsp);
+  auto distributeOp = genDistributeWrapperOp(converter, semaCtx, eval, loc,
+                                             distributeClauseOps, dsp);
 
-  auto simdOp = genSimdOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
+  auto simdOp =
+      genSimdWrapperOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
@@ -2331,18 +2357,18 @@ static void genCompositeDistributeSimd(
                 llvm::omp::Directive::OMPD_distribute_simd, dsp);
 }
 
-static void genCompositeDoSimd(Fortran::lower::AbstractConverter &converter,
+static void genCompositeDoSimd(lower::AbstractConverter &converter,
                                lower::SymMap &symTable,
-                               Fortran::semantics::SemanticsContext &semaCtx,
-                               Fortran::lower::pft::Evaluation &eval,
-                               mlir::Location loc, const ConstructQueue &queue,
+                               semantics::SemanticsContext &semaCtx,
+                               lower::pft::Evaluation &eval, mlir::Location loc,
+                               const ConstructQueue &queue,
                                ConstructQueue::iterator item,
                                DataSharingProcessor &dsp) {
-  Fortran::lower::StatementContext stmtCtx;
+  lower::StatementContext stmtCtx;
 
   // Clause processing.
   mlir::omp::WsloopClauseOps wsloopClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> wsloopReductionSyms;
+  llvm::SmallVector<const semantics::Symbol *> wsloopReductionSyms;
   llvm::SmallVector<mlir::Type> wsloopReductionTypes;
   genWsloopClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
                    wsloopClauseOps, wsloopReductionTypes, wsloopReductionSyms);
@@ -2351,15 +2377,17 @@ static void genCompositeDoSimd(Fortran::lower::AbstractConverter &converter,
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
-  llvm::SmallVector<const Fortran::semantics::Symbol *> iv;
+  llvm::SmallVector<const semantics::Symbol *> iv;
   genLoopNestClauses(converter, semaCtx, eval, item->clauses, loc,
                      loopNestClauseOps, iv);
 
   // Operation creation.
-  auto wsloopOp = genWsloopOp(converter, semaCtx, eval, loc, wsloopClauseOps,
-                              wsloopReductionSyms, wsloopReductionTypes, dsp);
+  auto wsloopOp =
+      genWsloopWrapperOp(converter, semaCtx, eval, loc, wsloopClauseOps,
+                         wsloopReductionSyms, wsloopReductionTypes, dsp);
 
-  auto simdOp = genSimdOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
+  auto simdOp =
+      genSimdWrapperOp(converter, semaCtx, eval, loc, simdClauseOps, dsp);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
@@ -2450,9 +2478,9 @@ static void genOMPDispatch(lower::AbstractConverter &converter,
         localDsp->processStep2();
       }
     }
-    genStandaloneParallel(converter, symTable, semaCtx, eval, loc, queue, item,
-                          outerCombined,
-                          enableDelayedPrivatization || loopConstruct ? parallelDsp : nullptr);
+    genStandaloneParallel(
+        converter, symTable, semaCtx, eval, loc, queue, item, outerCombined,
+        enableDelayedPrivatization || loopConstruct ? parallelDsp : nullptr);
     break;
   }
   case llvm::omp::Directive::OMPD_section:
@@ -2924,13 +2952,8 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
                    semantics::SemanticsContext &semaCtx,
                    lower::pft::Evaluation &eval,
                    const parser::OpenMPConstruct &ompConstruct) {
-  std::visit(
-      [&](auto &&s) { 
-        genOMP(converter, symTable, semaCtx, eval, s);
-        llvm::errs() << "\n\nOMP CONSTRUCT FOUND:\n";
-        converter.getModuleOp().dump();
-      },
-      ompConstruct.u);
+  std::visit([&](auto &&s) { genOMP(converter, symTable, semaCtx, eval, s); },
+             ompConstruct.u);
 }
 
 //===----------------------------------------------------------------------===//
