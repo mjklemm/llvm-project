@@ -79,7 +79,7 @@ end program
 ! CHECK:             %[[VAL_10:.*]] = arith.constant 0 : i32
 ! CHECK:             %[[VAL_11:.*]] = arith.constant 10 : i32
 ! CHECK:             %[[VAL_12:.*]] = arith.constant 1 : i32
-! CHECK:             omp.wsloop byref reduction(@add_reduction_byref_box_2xi32 %[[VAL_9]] -> %[[VAL_13:.*]] : !fir.ref<!fir.box<!fir.array<2xi32>>>) {
+! CHECK:             omp.wsloop reduction(byref @add_reduction_byref_box_2xi32 %[[VAL_9]] -> %[[VAL_13:.*]] : !fir.ref<!fir.box<!fir.array<2xi32>>>) {
 ! CHECK-NEXT:          omp.loop_nest (%[[VAL_14:.*]]) : i32 = (%[[VAL_10]]) to (%[[VAL_11]]) inclusive step (%[[VAL_12]]) {
 ! CHECK:                 %[[VAL_15:.*]]:2 = hlfir.declare %[[VAL_13]] {uniq_name = "_QFEr"} : (!fir.ref<!fir.box<!fir.array<2xi32>>>) -> (!fir.ref<!fir.box<!fir.array<2xi32>>>, !fir.ref<!fir.box<!fir.array<2xi32>>>)
 ! CHECK:                 fir.store %[[VAL_14]] to %[[VAL_7]]#1 : !fir.ref<i32>

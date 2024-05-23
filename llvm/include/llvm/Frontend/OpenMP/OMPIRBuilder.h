@@ -1302,7 +1302,8 @@ public:
   InsertPointTy createReductionsGPU(const LocationDescription &Loc,
                                     InsertPointTy AllocaIP,
                                     ArrayRef<ReductionInfo> ReductionInfos,
-                                    bool IsNoWait = false, bool IsByRef = false,
+                                    ArrayRef<bool> IsByRef,
+                                    bool IsNoWait = false,
                                     bool IsTeamsReduction = false,
                                     bool HasDistribute = false);
 
@@ -1372,7 +1373,7 @@ public:
   InsertPointTy createReductions(const LocationDescription &Loc,
                                  InsertPointTy AllocaIP,
                                  ArrayRef<ReductionInfo> ReductionInfos,
-                                 bool IsNoWait = false, bool IsByRef = false,
+                                 ArrayRef<bool> IsByRef, bool IsNoWait = false,
                                  bool IsTeamsReduction = false,
                                  bool HasDistribute = false);
 

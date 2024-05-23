@@ -1885,6 +1885,9 @@ OpenMPIRBuilder::createTask(const LocationDescription &Loc,
     //    call @__kmpc_omp_task(...)
     //    br label %exit
     //  else:
+    //    ;; Wait for resolution of dependencies, if any, before
+    //    ;; beginning the task
+    //    call @__kmpc_omp_wait_deps(...)
     //    call @__kmpc_omp_task_begin_if0(...)
     //    call @outlined_fn(...)
     //    call @__kmpc_omp_task_complete_if0(...)
@@ -1902,6 +1905,16 @@ OpenMPIRBuilder::createTask(const LocationDescription &Loc,
       SplitBlockAndInsertIfThenElse(IfCondition, IfTerminator, &ThenTI,
                                     &ElseTI);
       Builder.SetInsertPoint(ElseTI);
+
+      if (Dependencies.size()) {
+        Function *TaskWaitFn =
+            getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_omp_wait_deps);
+        Builder.CreateCall(
+            TaskWaitFn,
+            {Ident, ThreadID, Builder.getInt32(Dependencies.size()), DepArray,
+             ConstantInt::get(Builder.getInt32Ty(), 0),
+             ConstantPointerNull::get(PointerType::getUnqual(M.getContext()))});
+      }
       Function *TaskBeginFn =
           getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_omp_task_begin_if0);
       Function *TaskCompleteFn =
@@ -3057,12 +3070,12 @@ static Function *getFreshReductionFunc(Module &M) {
 static void populateReductionFunction(
     Function *ReductionFunc,
     ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
-    IRBuilder<> &Builder, bool IsByRef, bool IsGPU) {
+    IRBuilder<> &Builder, ArrayRef<bool> IsByRef, bool IsGPU) {
   Module *Module = ReductionFunc->getParent();
   BasicBlock *ReductionFuncBlock =
       BasicBlock::Create(Module->getContext(), "", ReductionFunc);
   Builder.SetInsertPoint(ReductionFuncBlock);
-  Value *LHSArrayPtr  = nullptr;
+  Value *LHSArrayPtr = nullptr;
   Value *RHSArrayPtr = nullptr;
   if (IsGPU) {
     // Need to alloca memory here and deal with the pointers before getting
@@ -3112,7 +3125,7 @@ static void populateReductionFunction(
     if (!Builder.GetInsertBlock())
       return;
     // store is inside of the reduction region when using by-ref
-    if (!IsByRef)
+    if (!IsByRef[En.index()])
       Builder.CreateStore(Reduced, LHSPtr);
   }
   Builder.CreateRetVoid();
@@ -3140,8 +3153,8 @@ checkReductionInfos(ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
 
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     const LocationDescription &Loc, InsertPointTy AllocaIP,
-    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait, bool IsByRef,
-    bool IsTeamsReduction, bool HasDistribute) {
+    ArrayRef<ReductionInfo> ReductionInfos, ArrayRef<bool> IsByRef,
+    bool IsNoWait, bool IsTeamsReduction, bool HasDistribute) {
   checkReductionInfos(ReductionInfos, /*IsGPU*/ true);
   LLVMContext &Ctx = M.getContext();
   if (!updateToLocation(Loc))
@@ -3164,7 +3177,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     ReductionFunc = GLOBAL_ReductionFunc;
   } else {
     ReductionFunc = getFreshReductionFunc(M);
-    GLOBAL_ReductionFunc= ReductionFunc;
+    GLOBAL_ReductionFunc = ReductionFunc;
     InsertPointTy CurIP = Builder.saveIP();
     populateReductionFunction(ReductionFunc, ReductionInfos, Builder, IsByRef,
                               true);
@@ -3183,15 +3196,14 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
   Type *RedArrayTy = ArrayType::get(PtrTy, Size);
   InsertPointTy CurIP = Builder.saveIP();
   Builder.restoreIP(AllocaIP);
-  Value *ReductionListAlloca = Builder.CreateAlloca(RedArrayTy, nullptr,
-                                                    ".omp.reduction.red_list");
+  Value *ReductionListAlloca =
+      Builder.CreateAlloca(RedArrayTy, nullptr, ".omp.reduction.red_list");
   Value *ReductionList =
       Builder.CreatePointerBitCastOrAddrSpaceCast(ReductionListAlloca, PtrTy);
   Builder.restoreIP(CurIP);
   for (auto En : enumerate(ReductionInfos)) {
     const ReductionInfo &RI = En.value();
-    Value *ElemPtr = Builder.CreateConstGEP2_64(RedArrayTy, ReductionList,
-                                                0,
+    Value *ElemPtr = Builder.CreateConstGEP2_64(RedArrayTy, ReductionList, 0,
                                                 En.index(), "elem_ptr");
     Value *CastElem =
         Builder.CreatePointerBitCastOrAddrSpaceCast(RI.PrivateVariable, PtrTy);
@@ -3203,8 +3215,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
   Function *WcFunc = emitInterWarpCopyFunction(M, Loc, ReductionInfos, *this);
   Builder.restoreIP(CurIP);
 
-  Value *RL =
-    Builder.CreatePointerBitCastOrAddrSpaceCast(ReductionList, PtrTy);
+  Value *RL = Builder.CreatePointerBitCastOrAddrSpaceCast(ReductionList, PtrTy);
   Value *ReductionDataSize =
       getTypeSizeInBytesValue(Builder, M, ReductionInfos.begin()->ElementType);
 
@@ -3221,11 +3232,11 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
   } else {
     CurIP = Builder.saveIP();
     Function *LtGCFunc =
-      emitListToGlobalCopyFunction(M, Loc, ReductionInfos, *this);
+        emitListToGlobalCopyFunction(M, Loc, ReductionInfos, *this);
     Function *LtGRFunc = emitListToGlobalReduceFunction(M, Loc, ReductionInfos,
                                                         ReductionFunc, *this);
     Function *GtLCFunc =
-      emitGlobalToListCopyFunction(M, Loc, ReductionInfos, *this);
+        emitGlobalToListCopyFunction(M, Loc, ReductionInfos, *this);
     Function *GtLRFunc = emitGlobalToListReduceFunction(M, Loc, ReductionInfos,
                                                         ReductionFunc, *this);
     Builder.restoreIP(CurIP);
@@ -3233,8 +3244,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     Function *RedFixedBuferFn = getOrCreateRuntimeFunctionPtr(
         RuntimeFunction::OMPRTL___kmpc_reduction_get_fixed_buffer);
 
-    Value *KernelTeamsReductionPtr =
-      Builder.CreateCall(RedFixedBuferFn, {});
+    Value *KernelTeamsReductionPtr = Builder.CreateCall(RedFixedBuferFn, {});
 
     Value *Args3[] = {RTLoc,
                       KernelTeamsReductionPtr,
@@ -3246,8 +3256,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
                       LtGCFunc,
                       LtGRFunc,
                       GtLCFunc,
-                      GtLRFunc
-    };
+                      GtLRFunc};
 
     Function *TeamsReduceFn = getOrCreateRuntimeFunctionPtr(
         RuntimeFunction::OMPRTL___kmpc_nvptx_teams_reduce_nowait_v2);
@@ -3285,10 +3294,11 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
 
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
     const LocationDescription &Loc, InsertPointTy AllocaIP,
-    ArrayRef<ReductionInfo> ReductionInfos, bool IsNoWait, bool IsByRef,
-    bool IsTeamsReduction, bool HasDistribute) {
+    ArrayRef<ReductionInfo> ReductionInfos, ArrayRef<bool> IsByRef,
+    bool IsNoWait, bool IsTeamsReduction, bool HasDistribute) {
+  assert(ReductionInfos.size() == IsByRef.size());
   if (Config.isGPU())
-    return createReductionsGPU(Loc, AllocaIP, ReductionInfos, IsNoWait, IsByRef,
+    return createReductionsGPU(Loc, AllocaIP, ReductionInfos, IsByRef, IsNoWait,
                                IsTeamsReduction, HasDistribute);
 
   checkReductionInfos(ReductionInfos, /*IsGPU*/ false);
@@ -3298,7 +3308,6 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
 
   if (ReductionInfos.size() == 0)
     return Builder.saveIP();
-
 
   BasicBlock *InsertBlock = Loc.IP.getBlock();
   BasicBlock *ContinuationBlock =
@@ -3374,7 +3383,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
     // We have one less load for by-ref case because that load is now inside of
     // the reduction region
     Value *RedValue = nullptr;
-    if (!IsByRef) {
+    if (!IsByRef[En.index()]) {
       RedValue = Builder.CreateLoad(ValueType, RI.Variable,
                                     "red.value." + Twine(En.index()));
     }
@@ -3382,7 +3391,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
         Builder.CreateLoad(ValueType, RI.PrivateVariable,
                            "red.private.value." + Twine(En.index()));
     Value *Reduced;
-    if (IsByRef) {
+    if (IsByRef[En.index()]) {
       Builder.restoreIP(RI.ReductionGen(Builder.saveIP(), RI.Variable,
                                         PrivateRedValue, Reduced));
     } else {
@@ -3392,7 +3401,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
     if (!Builder.GetInsertBlock())
       return InsertPointTy();
     // for by-ref case, the load is inside of the reduction region
-    if (!IsByRef)
+    if (!IsByRef[En.index()])
       Builder.CreateStore(Reduced, RI.Variable);
   }
   Function *EndReduceFunc = getOrCreateRuntimeFunctionPtr(
@@ -3405,7 +3414,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
   // function. There are no loads/stores here because they will be happening
   // inside the atomic elementwise reduction.
   Builder.SetInsertPoint(AtomicRedBlock);
-  if (CanGenerateAtomic && !IsByRef) {
+  if (CanGenerateAtomic && llvm::none_of(IsByRef, [](bool P) { return P; })) {
     for (const ReductionInfo &RI : ReductionInfos) {
       Builder.restoreIP(RI.AtomicReductionGen(Builder.saveIP(), RI.ElementType,
                                               RI.Variable, RI.PrivateVariable));
