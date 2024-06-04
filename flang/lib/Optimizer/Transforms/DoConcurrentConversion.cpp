@@ -581,7 +581,8 @@ public:
 
     auto *context = &getContext();
 
-    if (mapTo != "host" && mapTo != "device") {
+    if (mapTo != fir::omp::DoConcurrentMappingKind::DCMK_Host &&
+        mapTo != fir::omp::DoConcurrentMappingKind::DCMK_Device) {
       mlir::emitWarning(mlir::UnknownLoc::get(context),
                         "DoConcurrentConversionPass: invalid `map-to` value. "
                         "Valid values are: `host` or `device`");
@@ -589,7 +590,8 @@ public:
     }
 
     mlir::RewritePatternSet patterns(context);
-    patterns.insert<DoConcurrentConversion>(context, mapTo == "device");
+    patterns.insert<DoConcurrentConversion>(
+        context, mapTo == fir::omp::DoConcurrentMappingKind::DCMK_Device);
     mlir::ConversionTarget target(*context);
     target.addLegalDialect<fir::FIROpsDialect, hlfir::hlfirDialect,
                            mlir::arith::ArithDialect, mlir::func::FuncDialect,
@@ -611,7 +613,8 @@ public:
 std::unique_ptr<mlir::Pass>
 fir::createDoConcurrentConversionPass(bool mapToDevice) {
   DoConcurrentConversionPassOptions options;
-  options.mapTo = mapToDevice ? "device" : "host";
+  options.mapTo = mapToDevice ? fir::omp::DoConcurrentMappingKind::DCMK_Device
+                              : fir::omp::DoConcurrentMappingKind::DCMK_Host;
 
   return std::make_unique<DoConcurrentConversionPass>(options);
 }

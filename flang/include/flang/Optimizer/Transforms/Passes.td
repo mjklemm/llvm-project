@@ -15,6 +15,7 @@
 #define FLANG_OPTIMIZER_TRANSFORMS_PASSES
 
 include "mlir/Pass/PassBase.td"
+include "mlir/IR/EnumAttr.td"
 
 def AbstractResultOpt
   : Pass<"abstract-result"> {
@@ -413,16 +414,23 @@ def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir:
 
      Still to TODO:
        - More extensive testing.
-       - Mapping to `target teams distribute parallel do`.
-       - Allowing the user to control mapping behavior: either to the host or
-         target.
   }];
 
   let dependentDialects = ["mlir::omp::OpenMPDialect"];
 
   let options = [
-    Option<"mapTo", "map-to", "std::string", "",
-           "Try to map `do concurrent` loops to OpenMP (on host or device)">,
+    Option<"mapTo", "map-to",
+           "fir::omp::DoConcurrentMappingKind",
+           /*default=*/"fir::omp::DoConcurrentMappingKind::DCMK_None",
+           "Try to map `do concurrent` loops to OpenMP (on host or device)",
+           [{::llvm::cl::values(
+               clEnumValN(fir::omp::DoConcurrentMappingKind::DCMK_None,
+                          "none", "Do not lower `do concurrent` to OpenMP"),
+               clEnumValN(fir::omp::DoConcurrentMappingKind::DCMK_Host,
+                          "host", "Lower to run in parallel on the CPU"),
+               clEnumValN(fir::omp::DoConcurrentMappingKind::DCMK_Device,
+                          "device", "Lower to run in parallel on the GPU")
+           )}]>,
   ];
 }
 

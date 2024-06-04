@@ -13,7 +13,12 @@
 #ifndef FORTRAN_OPTIMIZER_TRANSFORMS_UTILS_H
 #define FORTRAN_OPTIMIZER_TRANSFORMS_UTILS_H
 
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Value.h"
+
 namespace fir {
+
+class FirOpBuilder;
 
 using MinlocBodyOpGeneratorTy = llvm::function_ref<mlir::Value(
     fir::FirOpBuilder &, mlir::Location, const mlir::Type &, mlir::Value,
@@ -33,6 +38,13 @@ void genMinMaxlocReductionLoop(fir::FirOpBuilder &builder, mlir::Value array,
                                mlir::Type maskElemType, mlir::Value resultArr,
                                bool maskMayBeLogicalScalar);
 
+namespace omp {
+enum class DoConcurrentMappingKind {
+  DCMK_None,  // Do not lower `do concurrent` to OpenMP.
+  DCMK_Host,  // Lower to run in parallel on the CPU.
+  DCMK_Device // Lower to run in parallel on the GPU.
+};
+}
 } // namespace fir
 
 #endif // FORTRAN_OPTIMIZER_TRANSFORMS_UTILS_H

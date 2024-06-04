@@ -15,6 +15,7 @@
 #ifndef FORTRAN_FRONTEND_CODEGENOPTIONS_H
 #define FORTRAN_FRONTEND_CODEGENOPTIONS_H
 
+#include "flang/Optimizer/Transforms/Utils.h"
 #include "llvm/Frontend/Debug/Options.h"
 #include "llvm/Frontend/Driver/CodeGenOptions.h"
 #include "llvm/Support/CodeGen.h"
@@ -131,11 +132,7 @@ public:
 
   /// Optionally map `do concurrent` loops to OpenMP. This is only valid of
   /// OpenMP is enabled.
-  enum class DoConcurrentMappingKind {
-    DCMK_None,  // Do not lower `do concurrent` to OpenMP.
-    DCMK_Host,  // Lower to run in parallel on the CPU.
-    DCMK_Device // Lower to run in parallel on the GPU.
-  };
+  using DoConcurrentMappingKind = fir::omp::DoConcurrentMappingKind;
 
   // Define accessors/mutators for code generation options of enumeration type.
 #define CODEGENOPT(Name, Bits, Default)
