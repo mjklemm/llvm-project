@@ -37,6 +37,10 @@ namespace fir {
 namespace Fortran {
 namespace lower {
 namespace omp {
+namespace internal {
+// TODO The following 2 functions are copied from "flang/Lower/OpenMP/Utils.h".
+// This duplication is temporary until we find a solution for a shared location
+// for these utils that does not introduce circular CMake deps.
 mlir::omp::MapInfoOp
 createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
                 mlir::Value baseAddr, mlir::Value varPtrPtr, std::string name,
@@ -139,6 +143,7 @@ mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
 
   return tripCount;
 }
+} // namespace internal
 } // namespace omp
 } // namespace lower
 } // namespace Fortran
@@ -219,8 +224,8 @@ public:
       collapseClauseOps.loopStepVar.push_back(stepOp->getResult(0));
 
       mlir::cast<mlir::omp::TargetOp>(targetOp).getTripCountMutable().assign(
-          Fortran::lower::omp::calculateTripCount(firBuilder, doLoop.getLoc(),
-                                                  collapseClauseOps));
+          Fortran::lower::omp::internal::calculateTripCount(
+              firBuilder, doLoop.getLoc(), collapseClauseOps));
     }
 
     rewriter.eraseOp(doLoop);
@@ -337,7 +342,7 @@ private:
     llvm::SmallVector<mlir::Value> boundsOps;
     genBoundsOps(rewriter, liveIn.getLoc(), declareOp, boundsOps);
 
-    return Fortran::lower::omp::createMapInfoOp(
+    return Fortran::lower::omp ::internal::createMapInfoOp(
         rewriter, liveIn.getLoc(), declareOp.getBase(), /*varPtrPtr=*/{},
         declareOp.getUniqName().str(), boundsOps, /*members=*/{},
         /*membersIndex=*/mlir::DenseIntElementsAttr{},
