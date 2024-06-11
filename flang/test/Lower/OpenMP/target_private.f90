@@ -42,15 +42,22 @@ subroutine omp_target_target_do_simd()
     end do
 !$omp end target teams distribute parallel do simd 
 
-!CHECK: omp.target trip_count
-!CHECK:       fir.alloca f64 {bindc_name = "var", pinned
+!CHECK: %[[IV:.*]] = omp.map.info{{.*}}map_clauses(implicit{{.*}}{name = "iv"}
+!CHECK: %[[VAR:.*]] = omp.map.info{{.*}}map_clauses(implicit{{.*}}{name = "var"}
+!CHECK: omp.target
+!CHECK-SAME: map_entries(%[[IV]] -> %{{.*}}, %[[VAR]] -> %{{.*}}
 !CHECK:       omp.teams {
-!CHECK:         fir.alloca i64
+!CHECK:         %[[IV_PRIV:.*]] = fir.alloca i64 {bindc_name = "iv"
+!CHECK:         %[[IV_DECL:.*]]:2 = hlfir.declare %[[IV_PRIV]]
+!CHECK:         %[[VAR_PRIV:.*]] = fir.alloca f64 {bindc_name = "var"
+!CHECK:         %[[VAR_DECL:.*]]:2 = hlfir.declare %[[VAR_PRIV]]
 !CHECK:         omp.distribute {
 !CHECK-NEXT:      omp.parallel {
 !CHECK-NEXT:        omp.wsloop {
 !CHECK-NEXT:          omp.simd {
 !CHECK-NEXT:            omp.loop_nest
+!CHECK:                   fir.store {{.*}} to %[[IV_DECL]]#1
+!CHECK:                   hlfir.assign {{.*}} to %[[VAR_DECL]]#0
 !CHECK:                   omp.yield
 !CHECK-NEXT:            }
 !CHECK-NEXT:            omp.terminator

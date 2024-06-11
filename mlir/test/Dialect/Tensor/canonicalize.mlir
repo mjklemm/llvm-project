@@ -2524,3 +2524,17 @@ func.func @dim_out_of_bounds() -> vector<7xi32> {
     return %16 : vector<7xi32>
 }
 
+// -----
+
+// CHECK-LABEL:   func.func @test_destination_multiple_result(
+// CHECK-SAME:         %[[ARG1:.*]]: tensor<2x2xf32>,
+// CHECK-SAME:         %[[ARG2:.*]]: tensor<2x2xf32>) -> index {
+// CHECK:           %[[RES:.*]]:2 = test.destination_style_op ins(%[[ARG1]] : tensor<2x2xf32>)
+// CHECK-SAME:      outs(%[[ARG2]] : tensor<2x2xf32>) -> tensor<2x2xf32>, index
+// CHECK:           return %[[RES]]#1 : index
+func.func @test_destination_multiple_result(%arg0: tensor<2x2xf32>, %arg1: tensor<2x2xf32>) -> index {
+  %cast = tensor.cast %arg0 : tensor<2x2xf32> to tensor<?x2xf32>
+  %cast_0 = tensor.cast %arg1 : tensor<2x2xf32> to tensor<?x2xf32>
+  %0:2 = test.destination_style_op ins(%cast : tensor<?x2xf32>) outs(%cast_0 : tensor<?x2xf32>) -> tensor<?x2xf32>, index
+  return %0#1 : index
+}

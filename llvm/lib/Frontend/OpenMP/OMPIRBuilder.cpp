@@ -1598,6 +1598,10 @@ IRBuilder<>::InsertPoint OpenMPIRBuilder::createParallel(
     } else {
       Builder.restoreIP(
           PrivCB(InnerAllocaIP, Builder.saveIP(), V, *Inner, ReplacementValue));
+      InnerAllocaIP = {
+          InnerAllocaIP.getBlock(),
+          InnerAllocaIP.getBlock()->getTerminator()->getIterator()};
+
       assert(ReplacementValue &&
              "Expected copy/create callback to set replacement value!");
       if (ReplacementValue == &V)
@@ -5114,7 +5118,7 @@ static int32_t computeHeuristicUnrollFactor(CanonicalLoopInfo *CLI) {
   UnrollCostEstimator UCE(L, TTI, EphValues, UP.BEInsns);
 
   // Loop is not unrollable if the loop contains certain instructions.
-  if (!UCE.canUnroll() || UCE.Convergent) {
+  if (!UCE.canUnroll()) {
     LLVM_DEBUG(dbgs() << "Loop not considered unrollable\n");
     return 1;
   }

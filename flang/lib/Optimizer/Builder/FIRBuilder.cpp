@@ -283,12 +283,10 @@ mlir::Block *fir::FirOpBuilder::getAllocaBlock() {
     return &lastWrapperOp->getParentRegion()->front();
   }
 
-  if (getRegion().getParentOfType<mlir::omp::DeclareReductionOp>())
-    return &getRegion().front();
-
-  if (auto accRecipeIface =
-          getRegion().getParentOfType<mlir::acc::RecipeInterface>())
-    return accRecipeIface.getAllocaBlock(getRegion());
+  if (auto recipeIface =
+          getRegion().getParentOfType<mlir::accomp::RecipeInterface>()) {
+    return recipeIface.getAllocaBlock(getRegion());
+  }
 
   return getEntryBlock();
 }

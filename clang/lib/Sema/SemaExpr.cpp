@@ -54,6 +54,7 @@
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/SemaObjC.h"
 #include "clang/Sema/SemaOpenMP.h"
+#include "clang/Sema/SemaPseudoObject.h"
 #include "clang/Sema/Template.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -3283,10 +3284,10 @@ ExprResult Sema::BuildDeclarationNameExpr(
     return CreateRecoveryExpr(NameInfo.getBeginLoc(), NameInfo.getEndLoc(), {});
   }
 
-  if (TemplateDecl *Template = dyn_cast<TemplateDecl>(D)) {
+  if (TemplateDecl *TD = dyn_cast<TemplateDecl>(D)) {
     // Specifically diagnose references to class templates that are missing
     // a template argument list.
-    diagnoseMissingTemplateArguments(TemplateName(Template), Loc);
+    diagnoseMissingTemplateArguments(SS, /*TemplateKeyword=*/false, TD, Loc);
     return ExprError();
   }
 
@@ -5184,7 +5185,7 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
   }
 
   // Perform default conversions.
-  if (!LHSExp->getType()->getAs<VectorType>()) {
+  if (!LHSExp->getType()->isSubscriptableVectorType()) {
     ExprResult Result = DefaultFunctionArrayLvalueConversion(LHSExp);
     if (Result.isInvalid())
       return ExprError();
@@ -5240,8 +5241,20 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
         << ResultType << BaseExpr->getSourceRange();
       return ExprError();
     }
-  } else if (const VectorType *VTy = LHSTy->getAs<VectorType>()) {
-    BaseExpr = LHSExp;    // vectors: V[123]
+  } else if (LHSTy->isSubscriptableVectorType()) {
+    if (LHSTy->isBuiltinType() &&
+        LHSTy->getAs<BuiltinType>()->isSveVLSBuiltinType()) {
+      const BuiltinType *BTy = LHSTy->getAs<BuiltinType>();
+      if (BTy->isSVEBool())
+        return ExprError(Diag(LLoc, diag::err_subscript_svbool_t)
+                         << LHSExp->getSourceRange()
+                         << RHSExp->getSourceRange());
+      ResultType = BTy->getSveEltType(Context);
+    } else {
+      const VectorType *VTy = LHSTy->getAs<VectorType>();
+      ResultType = VTy->getElementType();
+    }
+    BaseExpr = LHSExp; // vectors: V[123]
     IndexExpr = RHSExp;
     // We apply C++ DR1213 to vector subscripting too.
     if (getLangOpts().CPlusPlus11 && LHSExp->isPRValue()) {
@@ -5253,34 +5266,6 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
     VK = LHSExp->getValueKind();
     if (VK != VK_PRValue)
       OK = OK_VectorComponent;
-
-    ResultType = VTy->getElementType();
-    QualType BaseType = BaseExpr->getType();
-    Qualifiers BaseQuals = BaseType.getQualifiers();
-    Qualifiers MemberQuals = ResultType.getQualifiers();
-    Qualifiers Combined = BaseQuals + MemberQuals;
-    if (Combined != MemberQuals)
-      ResultType = Context.getQualifiedType(ResultType, Combined);
-  } else if (LHSTy->isBuiltinType() &&
-             LHSTy->getAs<BuiltinType>()->isSveVLSBuiltinType()) {
-    const BuiltinType *BTy = LHSTy->getAs<BuiltinType>();
-    if (BTy->isSVEBool())
-      return ExprError(Diag(LLoc, diag::err_subscript_svbool_t)
-                       << LHSExp->getSourceRange() << RHSExp->getSourceRange());
-
-    BaseExpr = LHSExp;
-    IndexExpr = RHSExp;
-    if (getLangOpts().CPlusPlus11 && LHSExp->isPRValue()) {
-      ExprResult Materialized = TemporaryMaterializationConversion(LHSExp);
-      if (Materialized.isInvalid())
-        return ExprError();
-      LHSExp = Materialized.get();
-    }
-    VK = LHSExp->getValueKind();
-    if (VK != VK_PRValue)
-      OK = OK_VectorComponent;
-
-    ResultType = BTy->getSveEltType(Context);
 
     QualType BaseType = BaseExpr->getType();
     Qualifiers BaseQuals = BaseType.getQualifiers();
@@ -5521,6 +5506,15 @@ struct EnsureImmediateInvocationInDefaultArgs
   // cause it to incorrectly point it to the outermost class
   // in the case of nested struct initialization.
   ExprResult TransformCXXThisExpr(CXXThisExpr *E) { return E; }
+
+  // Rewrite to source location to refer to the context in which they are used.
+  ExprResult TransformSourceLocExpr(SourceLocExpr *E) {
+    if (E->getParentContext() == SemaRef.CurContext)
+      return E;
+    return getDerived().RebuildSourceLocExpr(E->getIdentKind(), E->getType(),
+                                             E->getBeginLoc(), E->getEndLoc(),
+                                             SemaRef.CurContext);
+  }
 };
 
 ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
@@ -5802,6 +5796,27 @@ static TypoCorrection TryTypoCorrectionForCall(Sema &S, Expr *Fn,
   return TypoCorrection();
 }
 
+// [C++26][[expr.unary.op]/p4
+// A pointer to member is only formed when an explicit &
+// is used and its operand is a qualified-id not enclosed in parentheses.
+static bool isParenthetizedAndQualifiedAddressOfExpr(Expr *Fn) {
+  if (!isa<ParenExpr>(Fn))
+    return false;
+
+  Fn = Fn->IgnoreParens();
+
+  auto *UO = dyn_cast<UnaryOperator>(Fn);
+  if (!UO || UO->getOpcode() != clang::UO_AddrOf)
+    return false;
+  if (auto *DRE = dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParens())) {
+    assert(isa<FunctionDecl>(DRE->getDecl()) && "expected a function");
+    return DRE->hasQualifier();
+  }
+  if (auto *OVL = dyn_cast<OverloadExpr>(UO->getSubExpr()->IgnoreParens()))
+    return OVL->getQualifier();
+  return false;
+}
+
 /// ConvertArgumentsForCall - Converts the arguments specified in
 /// Args/NumArgs to the parameter types of the function FDecl with
 /// function prototype Proto. Call is the call expression itself, and
@@ -5823,8 +5838,10 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
 
   // C99 6.5.2.2p7 - the arguments are implicitly converted, as if by
   // assignment, to the types of the corresponding parameter, ...
+
+  bool AddressOf = isParenthetizedAndQualifiedAddressOfExpr(Fn);
   bool HasExplicitObjectParameter =
-      FDecl && FDecl->hasCXXExplicitFunctionObjectParameter();
+      !AddressOf && FDecl && FDecl->hasCXXExplicitFunctionObjectParameter();
   unsigned ExplicitObjectParameterOffset = HasExplicitObjectParameter ? 1 : 0;
   unsigned NumParams = Proto->getNumParams();
   bool Invalid = false;
@@ -6535,7 +6552,7 @@ ExprResult Sema::BuildCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
     OverloadExpr::FindResult find = OverloadExpr::find(Fn);
 
     // We aren't supposed to apply this logic if there's an '&' involved.
-    if (!find.HasFormOfMemberPointer) {
+    if (!find.HasFormOfMemberPointer || find.IsAddressOfOperandWithParen) {
       if (Expr::hasAnyTypeDependentArguments(ArgExprs))
         return CallExpr::Create(Context, Fn, ArgExprs, Context.DependentTy,
                                 VK_PRValue, RParenLoc, CurFPFeatureOverrides());
@@ -7536,27 +7553,6 @@ bool Sema::isValidSveBitcast(QualType srcTy, QualType destTy) {
 
     const auto *VecTy = SecondType->getAs<VectorType>();
     return VecTy && VecTy->getVectorKind() == VectorKind::SveFixedLengthData;
-  };
-
-  return ValidScalableConversion(srcTy, destTy) ||
-         ValidScalableConversion(destTy, srcTy);
-}
-
-/// Are the two types RVV-bitcast-compatible types? I.e. is bitcasting from the
-/// first RVV type (e.g. an RVV scalable type) to the second type (e.g. an RVV
-/// VLS type) allowed?
-///
-/// This will also return false if the two given types do not make sense from
-/// the perspective of RVV bitcasts.
-bool Sema::isValidRVVBitcast(QualType srcTy, QualType destTy) {
-  assert(srcTy->isVectorType() || destTy->isVectorType());
-
-  auto ValidScalableConversion = [](QualType FirstType, QualType SecondType) {
-    if (!FirstType->isRVVSizelessBuiltinType())
-      return false;
-
-    const auto *VecTy = SecondType->getAs<VectorType>();
-    return VecTy && VecTy->getVectorKind() == VectorKind::RVVFixedLengthData;
   };
 
   return ValidScalableConversion(srcTy, destTy) ||
@@ -15239,7 +15235,7 @@ ExprResult Sema::BuildBinOp(Scope *S, SourceLocation OpLoc,
   LHSExpr = LHS.get();
   RHSExpr = RHS.get();
 
-  // We want to end up calling one of checkPseudoObjectAssignment
+  // We want to end up calling one of SemaPseudoObject::checkAssignment
   // (if the LHS is a pseudo-object), BuildOverloadedBinOp (if
   // both expressions are overloadable or either is type-dependent),
   // or CreateBuiltinBinOp (in any other case).  We also want to get
@@ -15250,7 +15246,7 @@ ExprResult Sema::BuildBinOp(Scope *S, SourceLocation OpLoc,
     // Assignments with a pseudo-object l-value need special analysis.
     if (pty->getKind() == BuiltinType::PseudoObject &&
         BinaryOperator::isAssignmentOp(Opc))
-      return checkPseudoObjectAssignment(S, OpLoc, Opc, LHSExpr, RHSExpr);
+      return PseudoObject().checkAssignment(S, OpLoc, Opc, LHSExpr, RHSExpr);
 
     // Don't resolve overloads if the other type is overloadable.
     if (getLangOpts().CPlusPlus && pty->getKind() == BuiltinType::Overload) {
@@ -15673,7 +15669,7 @@ ExprResult Sema::BuildUnaryOp(Scope *S, SourceLocation OpLoc,
     // Increment and decrement of pseudo-object references.
     if (pty->getKind() == BuiltinType::PseudoObject &&
         UnaryOperator::isIncrementDecrementOp(Opc))
-      return checkPseudoObjectIncDec(S, OpLoc, Opc, Input);
+      return PseudoObject().checkIncDec(S, OpLoc, Opc, Input);
 
     // extension is always a builtin operator.
     if (Opc == UO_Extension)
@@ -17242,8 +17238,7 @@ ExprResult Sema::TransformToPotentiallyEvaluated(Expr *E) {
 TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
   assert(isUnevaluatedContext() &&
          "Should only transform unevaluated expressions");
-  ExprEvalContexts.back().Context =
-      ExprEvalContexts[ExprEvalContexts.size() - 2].Context;
+  ExprEvalContexts.back().Context = parentEvaluationContext().Context;
   if (isUnevaluatedContext())
     return TInfo;
   return TransformToPE(*this).TransformType(TInfo);
@@ -17260,14 +17255,13 @@ Sema::PushExpressionEvaluationContext(
   // discarded statements or immediate context are themselves
   // a discarded statement or an immediate context, respectively.
   ExprEvalContexts.back().InDiscardedStatement =
-      ExprEvalContexts[ExprEvalContexts.size() - 2]
-          .isDiscardedStatementContext();
+      parentEvaluationContext().isDiscardedStatementContext();
 
   // C++23 [expr.const]/p15
   // An expression or conversion is in an immediate function context if [...]
   // it is a subexpression of a manifestly constant-evaluated expression or
   // conversion.
-  const auto &Prev = ExprEvalContexts[ExprEvalContexts.size() - 2];
+  const auto &Prev = parentEvaluationContext();
   ExprEvalContexts.back().InImmediateFunctionContext =
       Prev.isImmediateFunctionContext() || Prev.isConstantEvaluated();
 
@@ -17712,7 +17706,7 @@ void Sema::PopExpressionEvaluationContext() {
 
   // Append the collected materialized temporaries into previous context before
   // exit if the previous also is a lifetime extending context.
-  auto &PrevRecord = ExprEvalContexts[ExprEvalContexts.size() - 2];
+  auto &PrevRecord = parentEvaluationContext();
   if (getLangOpts().CPlusPlus23 && Rec.InLifetimeExtendingContext &&
       PrevRecord.InLifetimeExtendingContext &&
       !Rec.ForRangeLifetimeExtendTemps.empty()) {
@@ -18780,11 +18774,21 @@ bool Sema::tryCaptureVariable(
   DeclContext *VarDC = Var->getDeclContext();
   DeclContext *DC = CurContext;
 
+  // Skip past RequiresExprBodys because they don't constitute function scopes.
+  while (DC->isRequiresExprBody())
+    DC = DC->getParent();
+
   // tryCaptureVariable is called every time a DeclRef is formed,
   // it can therefore have non-negigible impact on performances.
   // For local variables and when there is no capturing scope,
   // we can bailout early.
   if (CapturingFunctionScopes == 0 && (!BuildAndDiagnose || VarDC == DC))
+    return true;
+
+  // Exception: Function parameters are not tied to the function's DeclContext
+  // until we enter the function definition. Capturing them anyway would result
+  // in an out-of-bounds error while traversing DC and its parents.
+  if (isa<ParmVarDecl>(Var) && !VarDC->isFunctionOrMethod())
     return true;
 
   const auto *VD = dyn_cast<VarDecl>(Var);
@@ -20890,7 +20894,7 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
 
   // Pseudo-objects.
   case BuiltinType::PseudoObject:
-    return checkPseudoObjectRValue(E);
+    return PseudoObject().checkRValue(E);
 
   case BuiltinType::BuiltinFn: {
     // Accept __noop without parens by implicitly converting it to a call expr.

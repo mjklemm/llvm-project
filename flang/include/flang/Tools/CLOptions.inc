@@ -178,13 +178,12 @@ inline void addCodeGenRewritePass(mlir::PassManager &pm, bool preserveDeclare) {
   fir::CodeGenRewriteOptions options;
   options.preserveDeclare = preserveDeclare;
   addPassConditionally(pm, disableCodeGenRewrite,
-      [&]() { return fir::createFirCodeGenRewritePass(options); });
+      [&]() { return fir::createCodeGenRewrite(options); });
 }
 
 inline void addTargetRewritePass(mlir::PassManager &pm) {
-  addPassConditionally(pm, disableTargetRewrite, []() {
-    return fir::createFirTargetRewritePass(fir::TargetRewriteOptions{});
-  });
+  addPassConditionally(pm, disableTargetRewrite,
+      []() { return fir::createTargetRewritePass(); });
 }
 
 inline mlir::LLVM::DIEmissionKind getEmissionKind(
@@ -234,9 +233,8 @@ inline void addBoxedProcedurePass(mlir::PassManager &pm) {
 
 inline void addExternalNameConversionPass(
     mlir::PassManager &pm, bool appendUnderscore = true) {
-  addPassConditionally(pm, disableExternalNameConversion, [&]() {
-    return fir::createExternalNameConversionPass(appendUnderscore);
-  });
+  addPassConditionally(pm, disableExternalNameConversion,
+      [&]() { return fir::createExternalNameConversion({appendUnderscore}); });
 }
 
 // Use inliner extension point callback to register the default inliner pass.
@@ -292,6 +290,7 @@ inline void createDefaultFIROptimizerPassPipeline(
 
   // Polymorphic types
   pm.addPass(fir::createPolymorphicOpConversion());
+  pm.addPass(fir::createAssumedRankOpConversion());
 
   if (pc.AliasAnalysis && !disableFirAliasTags && !useOldAliasTags)
     pm.addPass(fir::createAddAliasTags());
@@ -320,16 +319,17 @@ inline void createHLFIRToFIRPassPipeline(
     addNestedPassToAllTopLevelOperations(
         pm, hlfir::createSimplifyHLFIRIntrinsics);
   }
-  pm.addPass(hlfir::createInlineElementalsPass());
+  addNestedPassToAllTopLevelOperations(pm, hlfir::createInlineElementals);
   if (optLevel.isOptimizingForSpeed()) {
     addCanonicalizerPassWithoutRegionSimplification(pm);
     pm.addPass(mlir::createCSEPass());
-    pm.addPass(hlfir::createOptimizedBufferizationPass());
+    addNestedPassToAllTopLevelOperations(
+        pm, hlfir::createOptimizedBufferization);
   }
-  pm.addPass(hlfir::createLowerHLFIROrderedAssignmentsPass());
-  pm.addPass(hlfir::createLowerHLFIRIntrinsicsPass());
-  pm.addPass(hlfir::createBufferizeHLFIRPass());
-  pm.addPass(hlfir::createConvertHLFIRtoFIRPass());
+  pm.addPass(hlfir::createLowerHLFIROrderedAssignments());
+  pm.addPass(hlfir::createLowerHLFIRIntrinsics());
+  pm.addPass(hlfir::createBufferizeHLFIR());
+  pm.addPass(hlfir::createConvertHLFIRtoFIR());
 }
 
 using DoConcurrentMappingKind =
@@ -350,10 +350,12 @@ inline void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
     pm.addPass(fir::createDoConcurrentConversionPass(
         doConcurrentMappingKind == DoConcurrentMappingKind::DCMK_Device));
 
-  pm.addPass(fir::createOMPMapInfoFinalizationPass());
+  addNestedPassToAllTopLevelOperations(
+      pm, fir::createOMPMapInfoFinalizationPass);
+
   pm.addPass(fir::createOMPMarkDeclareTargetPass());
   if (isTargetDevice)
-    pm.addPass(fir::createOMPFunctionFilteringPass());
+    pm.addPass(fir::createOMPFunctionFiltering());
 }
 
 #if !defined(FLANG_EXCLUDE_CODEGEN)
@@ -375,7 +377,7 @@ inline void createDefaultFIRCodeGenPassPipeline(mlir::PassManager &pm,
   fir::createDebugPasses(pm, config.DebugInfo, config.OptLevel, inputFilename);
 
   if (config.VScaleMin != 0)
-    pm.addPass(fir::createVScaleAttrPass({config.VScaleMin, config.VScaleMax}));
+    pm.addPass(fir::createVScaleAttr({{config.VScaleMin, config.VScaleMax}}));
 
   // Add function attributes
   fir::FunctionAttrTypes functionAttrs;

@@ -37,7 +37,7 @@ namespace omp {
 ReductionProcessor::ReductionIdentifier ReductionProcessor::getReductionType(
     const omp::clause::ProcedureDesignator &pd) {
   auto redType = llvm::StringSwitch<std::optional<ReductionIdentifier>>(
-                     getRealName(pd.v.id()).ToString())
+                     getRealName(pd.v.sym()).ToString())
                      .Case("max", ReductionIdentifier::MAX)
                      .Case("min", ReductionIdentifier::MIN)
                      .Case("iand", ReductionIdentifier::IAND)
@@ -75,12 +75,12 @@ void ReductionProcessor::addReductionSym(
     llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &symbols) {
   const auto &objectList{std::get<omp::ObjectList>(reduction.t)};
   llvm::transform(objectList, std::back_inserter(symbols),
-                  [](const Object &object) { return object.id(); });
+                  [](const Object &object) { return object.sym(); });
 }
 
 bool ReductionProcessor::supportedIntrinsicProcReduction(
     const omp::clause::ProcedureDesignator &pd) {
-  semantics::Symbol *sym = pd.v.id();
+  semantics::Symbol *sym = pd.v.sym();
   if (!sym->GetUltimate().attrs().test(semantics::Attr::INTRINSIC))
     return false;
   auto redType = llvm::StringSwitch<bool>(getRealName(sym).ToString())
@@ -715,7 +715,7 @@ void ReductionProcessor::addDeclareReduction(
   // should happen byref
   fir::FirOpBuilder &builder = converter.getFirOpBuilder();
   for (const Object &object : objectList) {
-    const semantics::Symbol *symbol = object.id();
+    const semantics::Symbol *symbol = object.sym();
     if (reductionSymbols)
       reductionSymbols->push_back(symbol);
     mlir::Value symVal = converter.getSymbolAddress(*symbol);
@@ -833,7 +833,7 @@ ReductionProcessor::getRealName(const semantics::Symbol *symbol) {
 
 const semantics::SourceName
 ReductionProcessor::getRealName(const omp::clause::ProcedureDesignator &pd) {
-  return getRealName(pd.v.id());
+  return getRealName(pd.v.sym());
 }
 
 int ReductionProcessor::getOperationIdentity(ReductionIdentifier redId,
