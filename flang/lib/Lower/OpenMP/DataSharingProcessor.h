@@ -92,7 +92,7 @@ private:
 
   OMPConstructSymbolVisitor visitor;
   mlir::omp::PrivateClauseOps privateClauseOps;
-  llvm::SmallVector<const semantics::Symbol *> privateSyms;
+  llvm::SmallVector<const semantics::Symbol *> delayedPrivSyms;
   bool privatizationDone = false;
 
   bool needBarrier();
@@ -165,16 +165,17 @@ public:
     loopIV = iv;
   }
 
-  bool isSymbolPrivatized(const semantics::Symbol &sym) const {
-    return allPrivatizedSymbols.contains(&sym);
+  const llvm::SetVector<const semantics::Symbol *> &
+  getAllSymbolsToPrivatize() const {
+    return allPrivatizedSymbols;
   }
 
   const mlir::omp::PrivateClauseOps &getPrivateClauseOps() const {
     return privateClauseOps;
   }
 
-  llvm::ArrayRef<const semantics::Symbol *> getPrivateSyms() const {
-    return privateSyms;
+  llvm::ArrayRef<const semantics::Symbol *> getDelayedPrivSyms() const {
+    return delayedPrivSyms;
   }
 };
 

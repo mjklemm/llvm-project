@@ -395,7 +395,6 @@ def FunctionAttr : Pass<"function-attr", "mlir::func::FuncOp"> {
            "bool", /*default=*/"false",
            "Set the unsafe-fp-math attribute on functions in the module.">,
   ];
-  let constructor = "::fir::createFunctionAttrPass()";
 }
 
 def AssumedRankOpConversion : Pass<"fir-assumed-rank-op", "mlir::ModuleOp"> {

@@ -421,8 +421,9 @@ void DataSharingProcessor::privatize() {
             sym->detailsIf<semantics::CommonBlockDetails>()) {
       for (const auto &mem : commonDet->objects())
         doPrivatize(&*mem);
-    } else
+    } else {
       doPrivatize(sym);
+    }
   }
 }
 
@@ -542,7 +543,7 @@ void DataSharingProcessor::doPrivatize(const semantics::Symbol *sym) {
   privateClauseOps.privatizers.push_back(
       mlir::SymbolRefAttr::get(privatizerOp));
   privateClauseOps.privateVars.push_back(hsb.getAddr());
-  privateSyms.push_back(sym);
+  delayedPrivSyms.push_back(sym);
 
   symToPrivatizer[sym] = privatizerOp;
 }

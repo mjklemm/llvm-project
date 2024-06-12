@@ -58,6 +58,7 @@ namespace fir {
 #define GEN_PASS_DECL_OMPMARKDECLARETARGETPASS
 #define GEN_PASS_DECL_OMPFUNCTIONFILTERING
 #define GEN_PASS_DECL_VSCALEATTR
+#define GEN_PASS_DECL_FUNCTIONATTR
 #include "flang/Optimizer/Transforms/Passes.h.inc"
 
 std::unique_ptr<mlir::Pass> createAffineDemotionPass();
@@ -77,17 +78,6 @@ createAlgebraicSimplificationPass(const mlir::GreedyRewriteConfig &config);
 std::unique_ptr<mlir::Pass> createVScaleAttrPass();
 std::unique_ptr<mlir::Pass>
 createVScaleAttrPass(std::pair<unsigned, unsigned> vscaleAttr);
-
-struct FunctionAttrTypes {
-  mlir::LLVM::framePointerKind::FramePointerKind framePointerKind =
-      mlir::LLVM::framePointerKind::FramePointerKind::None;
-};
-
-std::unique_ptr<mlir::Pass> createFunctionAttrPass();
-std::unique_ptr<mlir::Pass>
-createFunctionAttrPass(FunctionAttrTypes &functionAttr, bool noInfsFPMath,
-                       bool noNaNsFPMath, bool approxFuncFPMath,
-                       bool noSignedZerosFPMath, bool unsafeFPMath);
 
 std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
 
