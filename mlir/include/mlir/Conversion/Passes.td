@@ -722,6 +722,22 @@ def ConvertMathToLLVMPass : Pass<"convert-math-to-llvm"> {
 }
 
 //===----------------------------------------------------------------------===//
+// MathToROCDL
+//===----------------------------------------------------------------------===//
+
+def ConvertMathToROCDL : Pass<"convert-math-to-rocdl", "ModuleOp"> {
+  let summary = "Convert Math dialect to rocdl calls";
+  let description = [{
+    This pass converts supported Math ops to rocdl calls.
+  }];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "math::MathDialect",
+    "vector::VectorDialect",
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // MathToSPIRV
 //===----------------------------------------------------------------------===//
 
