@@ -355,8 +355,10 @@ inline void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
       pm, fir::createOMPMapInfoFinalizationPass);
 
   pm.addPass(fir::createOMPMarkDeclareTargetPass());
-  if (isTargetDevice)
+  if (isTargetDevice) {
     pm.addPass(fir::createOMPFunctionFiltering());
+    pm.addPass(fir::createOMPGlobalFilteringPass());
+  }
 }
 
 #if !defined(FLANG_EXCLUDE_CODEGEN)
