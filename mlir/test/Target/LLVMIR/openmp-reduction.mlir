@@ -566,7 +566,7 @@ llvm.func @parallel_nested_workshare_reduction(%ub : i64) {
 
 // Private reduction variable and its initialization.
 // CHECK: %[[PRIVATE:private_redvar]] = alloca i32
-// CHECK-NEXT: store i32 0, ptr %[[PRIVATE]]
+// CHECK: store i32 0, ptr %[[PRIVATE]]
 
 // Loop exit:
 // CHECK: call void @__kmpc_barrier

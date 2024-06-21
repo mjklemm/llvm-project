@@ -40,6 +40,7 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/ReplaceConstant.h"
 #include "llvm/IR/Value.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
@@ -1404,7 +1405,8 @@ IRBuilder<>::InsertPoint OpenMPIRBuilder::createParallel(
 
   // Change the location to the outer alloca insertion point to create and
   // initialize the allocas we pass into the parallel region.
-  Builder.restoreIP(OuterAllocaIP);
+  InsertPointTy NewOuter(OuterAllocaBlock, OuterAllocaBlock->begin());
+  Builder.restoreIP(NewOuter);
   AllocaInst *TIDAddrAlloca = Builder.CreateAlloca(Int32, nullptr, "tid.addr");
   AllocaInst *ZeroAddrAlloca =
       Builder.CreateAlloca(Int32, nullptr, "zero.addr");
@@ -3322,7 +3324,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductions(
   // values.
   unsigned NumReductions = ReductionInfos.size();
   Type *RedArrayTy = ArrayType::get(Builder.getPtrTy(), NumReductions);
-  Builder.restoreIP(AllocaIP);
+  Builder.SetInsertPoint(AllocaIP.getBlock()->getTerminator());
   Value *RedArray = Builder.CreateAlloca(RedArrayTy, nullptr, "red.array");
 
   Builder.SetInsertPoint(InsertBlock, InsertBlock->end());
@@ -3696,7 +3698,8 @@ OpenMPIRBuilder::applyStaticWorkshareLoop(DebugLoc DL, CanonicalLoopInfo *CLI,
       getOrCreateRuntimeFunction(M, omp::OMPRTL___kmpc_for_static_fini);
 
   // Allocate space for computed loop bounds as expected by the "init" function.
-  Builder.restoreIP(AllocaIP);
+  Builder.SetInsertPoint(AllocaIP.getBlock()->getFirstNonPHIOrDbgOrAlloca());
+
   Type *I32Type = Type::getInt32Ty(M.getContext());
   Value *PLastIter = Builder.CreateAlloca(I32Type, nullptr, "p.lastiter");
   Value *PLowerBound = Builder.CreateAlloca(IVTy, nullptr, "p.lowerbound");
@@ -4275,7 +4278,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::applyDynamicWorkshareLoop(
   FunctionCallee DynamicNext = getKmpcForDynamicNextForType(IVTy, M, *this);
 
   // Allocate space for computed loop bounds as expected by the "init" function.
-  Builder.restoreIP(AllocaIP);
+  Builder.SetInsertPoint(AllocaIP.getBlock()->getFirstNonPHIOrDbgOrAlloca());
   Type *I32Type = Type::getInt32Ty(M.getContext());
   Value *PLastIter = Builder.CreateAlloca(I32Type, nullptr, "p.lastiter");
   Value *PLowerBound = Builder.CreateAlloca(IVTy, nullptr, "p.lowerbound");
@@ -6412,17 +6415,23 @@ static Function *createOutlinedFunction(
 
     // Things like GEP's can come in the form of Constants. Constants and
     // ConstantExpr's do not have access to the knowledge of what they're
-    // contained in, so we must dig a little to find an instruction so we can
-    // tell if they're used inside of the function we're outlining. We also
-    // replace the original constant expression with a new instruction
+    // contained in, so we must dig a little to find an instruction so we
+    // can tell if they're used inside of the function we're outlining. We
+    // also replace the original constant expression with a new instruction
     // equivalent; an instruction as it allows easy modification in the
-    // following loop, as we can now know the constant (instruction) is owned by
-    // our target function and replaceUsesOfWith can now be invoked on it
-    // (cannot do this with constants it seems). A brand new one also allows us
-    // to be cautious as it is perhaps possible the old expression was used
-    // inside of the function but exists and is used externally (unlikely by the
-    // nature of a Constant, but still).
-    replaceConstantValueUsesInFuncWithInstr(Input, Func);
+    // following loop, as we can now know the constant (instruction) is
+    // owned by our target function and replaceUsesOfWith can now be invoked
+    // on it (cannot do this with constants it seems). A brand new one also
+    // allows us to be cautious as it is perhaps possible the old expression
+    // was used inside of the function but exists and is used externally
+    // (unlikely by the nature of a Constant, but still).
+    // NOTE: We cannot remove dead constants that have been rewritten to
+    // instructions at this stage, we run the risk of breaking later lowering
+    // by doing so as we could still be in the process of lowering the module
+    // from MLIR to LLVM-IR and the MLIR lowering may still require the original
+    // constants we have created rewritten versions of.
+    if (auto *Const = dyn_cast<Constant>(Input))
+      convertUsersOfConstantsToInstructions(Const, Func, false);
 
     // Collect all the instructions
     for (User *User : make_early_inc_range(Input->users()))
