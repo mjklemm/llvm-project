@@ -3354,6 +3354,16 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
   if (ReductionInfos.size() == 0)
     return Builder.saveIP();
 
+  BasicBlock *ContinuationBlock = nullptr;
+  if (ReductionGenCBKind != ReductionGenCBKind::Clang) {
+      // Copied code from createReductions
+    BasicBlock *InsertBlock = Loc.IP.getBlock();
+    ContinuationBlock =
+      InsertBlock->splitBasicBlock(Loc.IP.getPoint(), "reduce.finalize");
+    InsertBlock->getTerminator()->eraseFromParent();
+    Builder.SetInsertPoint(InsertBlock, InsertBlock->end());
+  }
+
   Function *CurFunc = Builder.GetInsertBlock()->getParent();
   AttributeList FuncAttrs;
   AttrBuilder AttrBldr(Ctx);
@@ -3511,7 +3521,9 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
     }
   }
   emitBlock(ExitBB, CurFunc);
-
+  if (ContinuationBlock)
+    Builder.CreateBr(ContinuationBlock);
+  Builder.SetInsertPoint(ContinuationBlock);
   Config.setEmitLLVMUsed();
 
   return Builder.saveIP();
