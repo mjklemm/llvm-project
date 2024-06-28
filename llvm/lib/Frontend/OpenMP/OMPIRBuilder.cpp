@@ -3517,13 +3517,18 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createReductionsGPU(
                ReductionFunc;
       });
     } else {
-      assert(false && "Unhandled ReductionGenCBKind");
+      Value *LHSValue = Builder.CreateLoad(RI.ElementType, LHS, "final.lhs");
+      Value *RHSValue = Builder.CreateLoad(RI.ElementType, RHS, "final.rhs");
+      Value *Reduced;
+      RI.ReductionGen(Builder.saveIP(), RHSValue, LHSValue, Reduced);
+      Builder.CreateStore(Reduced, LHS);
     }
   }
   emitBlock(ExitBB, CurFunc);
-  if (ContinuationBlock)
+  if (ContinuationBlock) {
     Builder.CreateBr(ContinuationBlock);
-  Builder.SetInsertPoint(ContinuationBlock);
+    Builder.SetInsertPoint(ContinuationBlock);
+  }
   Config.setEmitLLVMUsed();
 
   return Builder.saveIP();
