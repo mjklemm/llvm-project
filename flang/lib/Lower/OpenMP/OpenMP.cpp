@@ -2209,8 +2209,11 @@ static void genStandaloneDistribute(
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
     ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+  lower::StatementContext stmtCtx;
+
   mlir::omp::DistributeClauseOps distributeClauseOps;
-  // TODO: Process DISTRIBUTE clauses
+  genDistributeClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
+                       distributeClauseOps);
 
   mlir::omp::LoopNestClauseOps loopNestClauseOps;
   llvm::SmallVector<const semantics::Symbol *> iv;
@@ -2337,7 +2340,8 @@ static void genCompositeDistributeParallelDo(
 
   // Clause processing.
   mlir::omp::DistributeClauseOps distributeClauseOps;
-  // TODO: Process DISTRIBUTE clauses
+  genDistributeClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
+                       distributeClauseOps);
 
   mlir::omp::ParallelClauseOps parallelClauseOps;
   mlir::omp::NumThreadsClauseOps numThreadsClauseOps;
@@ -2412,7 +2416,8 @@ static void genCompositeDistributeParallelDoSimd(
 
   // Clause processing.
   mlir::omp::DistributeClauseOps distributeClauseOps;
-  // TODO: Process DISTRIBUTE clauses
+  genDistributeClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
+                       distributeClauseOps);
 
   mlir::omp::ParallelClauseOps parallelClauseOps;
   mlir::omp::NumThreadsClauseOps numThreadsClauseOps;
@@ -2482,9 +2487,12 @@ static void genCompositeDistributeSimd(
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
     ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+  lower::StatementContext stmtCtx;
+
   // Clause processing.
   mlir::omp::DistributeClauseOps distributeClauseOps;
-  // TODO: Process DISTRIBUTE clauses
+  genDistributeClauses(converter, semaCtx, stmtCtx, item->clauses, loc,
+                       distributeClauseOps);
 
   mlir::omp::SimdClauseOps simdClauseOps;
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
