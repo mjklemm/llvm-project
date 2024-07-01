@@ -1027,7 +1027,8 @@ bool ClauseProcessor::processReduction(
 
         // Copy local lists into the output.
         llvm::copy(reductionVars, std::back_inserter(result.reductionVars));
-        llvm::copy(reduceVarByRef, std::back_inserter(result.reduceVarByRef));
+        llvm::copy(reduceVarByRef,
+                   std::back_inserter(result.reductionVarsByRef));
         llvm::copy(reductionDeclSymbols,
                    std::back_inserter(result.reductionDeclSymbols));
 
@@ -1073,7 +1074,7 @@ bool ClauseProcessor::processEnter(
 
 bool ClauseProcessor::processUseDeviceAddr(
     Fortran::lower::StatementContext &stmtCtx,
-    mlir::omp::UseDeviceClauseOps &result,
+    mlir::omp::UseDeviceAddrClauseOps &result,
     llvm::SmallVectorImpl<mlir::Type> &useDeviceTypes,
     llvm::SmallVectorImpl<mlir::Location> &useDeviceLocs,
     llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &useDeviceSyms)
@@ -1138,11 +1139,11 @@ bool ClauseProcessor::processUseDeviceAddr(
 
 bool ClauseProcessor::processUseDevicePtr(
     Fortran::lower::StatementContext &stmtCtx,
-    mlir::omp::UseDeviceClauseOps &result,
+    mlir::omp::UseDevicePtrClauseOps &result,
     llvm::SmallVectorImpl<mlir::Type> &useDeviceTypes,
     llvm::SmallVectorImpl<mlir::Location> &useDeviceLocs,
-    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &useDeviceSyms)
-    const {
+    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &useDeviceSyms,
+    llvm::SmallVectorImpl<mlir::Value> &useDeviceAddrVars) const {
   std::map<const Fortran::semantics::Symbol *,
            llvm::SmallVector<OmpMapMemberIndicesData>>
       parentMemberIndices;
@@ -1196,7 +1197,7 @@ bool ClauseProcessor::processUseDevicePtr(
       });
 
   insertChildMapInfoIntoParent(converter, parentMemberIndices,
-                               result.useDeviceAddrVars, useDeviceSyms,
+                               useDeviceAddrVars, useDeviceSyms,
                                &useDeviceTypes, &useDeviceLocs);
   return clauseFound;
 }
