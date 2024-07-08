@@ -51,6 +51,14 @@ class OMPMapInfoFinalizationPass
     : public fir::impl::OMPMapInfoFinalizationPassBase<
           OMPMapInfoFinalizationPass> {
 
+  /// Tracks any intermediate function/subroutine local allocations we
+  /// generate for the descriptors of box type dummy arguments, so that
+  /// we can retrieve it for subsequent reuses within the functions
+  /// scope.
+  std::map</*descriptor opaque pointer=*/void *,
+           /*corresponding local alloca=*/fir::AllocaOp>
+      localBoxAllocas;
+
   void genDescriptorMemberMaps(mlir::omp::MapInfoOp op,
                                fir::FirOpBuilder &builder,
                                mlir::Operation *target) {
@@ -75,14 +83,26 @@ class OMPMapInfoFinalizationPass
     // perform an alloca and then store to it and retrieve the data from the new
     // alloca.
     if (mlir::isa<fir::BaseBoxType>(descriptor.getType())) {
-      mlir::OpBuilder::InsertPoint insPt = builder.saveInsertionPoint();
-      mlir::Block *allocaBlock = builder.getAllocaBlock();
-      assert(allocaBlock && "No alloca block found for this top level op");
-      builder.setInsertionPointToStart(allocaBlock);
-      auto alloca = builder.create<fir::AllocaOp>(loc, descriptor.getType());
-      builder.restoreInsertionPoint(insPt);
-      builder.create<fir::StoreOp>(loc, descriptor, alloca);
-      descriptor = alloca;
+      // If we have already created a local allocation for this BoxType,
+      // we must be sure to re-use it so that we end up with the same
+      // allocations being utilised for the same descriptor across all map uses,
+      // this prevents runtime issues such as not appropriately releasing or
+      // deleting all mapped data.
+      auto find = localBoxAllocas.find(descriptor.getAsOpaquePointer());
+      if (find != localBoxAllocas.end()) {
+        builder.create<fir::StoreOp>(loc, descriptor, find->second);
+        descriptor = find->second;
+      } else {
+        mlir::OpBuilder::InsertPoint insPt = builder.saveInsertionPoint();
+        mlir::Block *allocaBlock = builder.getAllocaBlock();
+        assert(allocaBlock && "No alloca block found for this top level op");
+        builder.setInsertionPointToStart(allocaBlock);
+        auto alloca = builder.create<fir::AllocaOp>(loc, descriptor.getType());
+        builder.restoreInsertionPoint(insPt);
+        builder.create<fir::StoreOp>(loc, descriptor, alloca);
+        localBoxAllocas[descriptor.getAsOpaquePointer()] = alloca;
+        descriptor = alloca;
+      }
     }
 
     mlir::Value baseAddrAddr = builder.create<fir::BoxOffsetOp>(
@@ -243,14 +263,12 @@ class OMPMapInfoFinalizationPass
   // operation (usually function) containing the MapInfoOp because this pass
   // will mutate siblings of MapInfoOp.
   void runOnOperation() override {
-    mlir::ModuleOp module =
-        mlir::dyn_cast_or_null<mlir::ModuleOp>(getOperation());
-    if (!module)
-      module = getOperation()->getParentOfType<mlir::ModuleOp>();
+    mlir::func::FuncOp func = getOperation();
+    mlir::ModuleOp module = func->getParentOfType<mlir::ModuleOp>();
     fir::KindMapping kindMap = fir::getKindMapping(module);
     fir::FirOpBuilder builder{module, std::move(kindMap)};
 
-    getOperation()->walk([&](mlir::omp::MapInfoOp op) {
+    func->walk([&](mlir::omp::MapInfoOp op) {
       // TODO: Currently only supports a single user for the MapInfoOp, this
       // is fine for the moment as the Fortran Frontend will generate a
       // new MapInfoOp per Target operation for the moment. However, when/if
