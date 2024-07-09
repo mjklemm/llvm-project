@@ -37,7 +37,6 @@
 #include "mlir/Dialect/OpenMP/OpenMPOpsEnums.cpp.inc"
 #include "mlir/Dialect/OpenMP/OpenMPOpsInterfaces.cpp.inc"
 #include "mlir/Dialect/OpenMP/OpenMPTypeInterfaces.cpp.inc"
-#include "mlir/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::omp;
@@ -2737,6 +2736,15 @@ LogicalResult PrivateClauseOp::verify() {
     return failure();
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Spec 5.2: Masked construct (10.5)
+//===----------------------------------------------------------------------===//
+
+void MaskedOp::build(OpBuilder &builder, OperationState &state,
+                     const MaskedClauseOps &clauses) {
+  MaskedOp::build(builder, state, clauses.filteredThreadIdVar);
 }
 
 #define GET_ATTRDEF_CLASSES

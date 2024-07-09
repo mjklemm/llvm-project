@@ -18,7 +18,6 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/LLVMIR/Dialect/OpenMPCommon.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -1052,6 +1051,9 @@ static LogicalResult convertOmpWsloop(
   llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
   // FIXME: This ignores any other nested wrappers (e.g. omp.simd).
   auto wsloopOp = cast<omp::WsloopOp>(opInst);
+  // FIXME: Here any other nested wrappers (e.g. omp.simd) are skipped, so
+  // codegen for composite constructs like 'DO/FOR SIMD' will be the same as for
+  // 'DO/FOR'.
   auto loopOp = cast<omp::LoopNestOp>(wsloopOp.getWrappedLoop());
 
   llvm::ArrayRef<bool> isByRef = getIsByRef(wsloopOp.getReductionVarsByref());

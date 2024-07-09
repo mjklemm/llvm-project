@@ -6560,6 +6560,10 @@ FunctionCallee OpenMPIRBuilder::createDispatchFiniFunction(unsigned IVSize,
   return getOrCreateRuntimeFunction(M, Name);
 }
 
+FunctionCallee OpenMPIRBuilder::createDispatchDeinitFunction() {
+  return getOrCreateRuntimeFunction(M, omp::OMPRTL___kmpc_dispatch_deinit);
+}
+
 static void emitUsed(StringRef Name, std::vector<llvm::WeakTrackingVH> &List,
                      Type *Int8PtrTy, Module &M) {
   if (List.empty())
