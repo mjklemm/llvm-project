@@ -179,10 +179,20 @@ private:
 
     mlir::IRMapping mapper;
     builder.setInsertionPoint(escapingOperand->getOwner());
-    mlir::Operation *lastSliceOp;
+    mlir::Operation *lastSliceOp = nullptr;
 
-    for (auto *op : backwardSlice)
+    for (auto *op : backwardSlice) {
+      // DeclareOps need special handling by searching for the corresponding ops
+      // in the host. Therefore, do not clone them since this special handling
+      // is done later in the fix-up process.
+      //
+      // TODO this might need a more elaborate handling in the future but for
+      // now this seems sufficient for our purposes.
+      if (llvm::isa<hlfir::DeclareOp>(op))
+        break;
+
       lastSliceOp = builder.clone(*op, mapper);
+    }
 
     builder.restoreInsertionPoint(ip);
     return lastSliceOp;
@@ -200,6 +210,9 @@ private:
              "Expected escaping operand to have a defining op (i.e. not to be "
              "a block argument)");
       mlir::Operation *lastSliceOp = cloneOperandSliceOutsideTargetOp(operand);
+
+      if (lastSliceOp == nullptr)
+        continue;
 
       // Find the index of the operand in the list of results produced by its
       // defining op.

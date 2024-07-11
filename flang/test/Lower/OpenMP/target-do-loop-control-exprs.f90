@@ -33,3 +33,32 @@ end subroutine
 ! CHECK:   omp.target
 
 ! CHECK: }
+
+subroutine foo_with_dummy_arg(nodes)
+  implicit none
+  integer, intent(inout) :: nodes( : )
+  integer :: i
+
+  !$omp target teams distribute parallel do
+    do i = 1, ubound(nodes, 1)
+      nodes(i) = i
+    end do
+  !$omp end target teams distribute parallel do
+end subroutine
+
+! CHECK: func.func @_QPfoo_with_dummy_arg(%[[FUNC_ARG:.*]]: !fir.box<!fir.array<?xi32>> {fir.bindc_name = "nodes"}) {
+
+! CHECK:   %[[ARR_DECL:.*]]:2 = hlfir.declare %[[FUNC_ARG]] dummy_scope
+
+! CHECK:   omp.map.info
+! CHECK:   omp.map.info
+! CHECK:   omp.map.info
+
+! Verify that we get the box dims of the host array declaration not the target
+! one.
+
+! CHECK:   fir.box_dims %[[ARR_DECL]]
+
+! CHECK:   omp.target
+
+! CHECK: }
