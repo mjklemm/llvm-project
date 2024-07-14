@@ -234,9 +234,16 @@ see the "Data environment" section below.
 By default, variables that are used inside a `do concurernt` loop nest are
 either treated as `shared` in case of mapping to `host`, or mapped into the
 `target` region using a `map` clause in case of mapping to `device`. The only
-exception to this is the loop's iteration variable(s) (IV) of **perfect** loop
-nest. In that case, for each IV, we allocate a local copy as shown the by the
-mapping examples above.
+exceptions to this are:
+  1. the loop's iteration variable(s) (IV) of **perfect** loop nests. In that
+     case, for each IV, we allocate a local copy as shown the by the mapping
+     examples above.
+  1. any values that are from allocations outside the loop nest and used
+     exclusively inside of it. In such cases, a local privatized
+     value is created in the OpenMP region to prevent multiple teams of threads
+     from accessing and destroying the same memory block which causes runtime
+     issues. For an example of such cases, see
+     `flang/test/Transforms/DoConcurrent/locally_destroyed_temp.f90`.
 
 #### Non-perfectly-nested loops' IVs
 
