@@ -2089,6 +2089,8 @@ getRefPtrIfDeclareTarget(mlir::Value value,
 struct MapInfoData : llvm::OpenMPIRBuilder::MapInfosTy {
   llvm::SmallVector<bool, 4> IsDeclareTarget;
   llvm::SmallVector<bool, 4> IsAMember;
+  // Identify if mapping was added by mapClause or use_device clauses.
+  llvm::SmallVector<bool, 4> IsAMapping;
   llvm::SmallVector<mlir::Operation *, 4> MapClause;
   llvm::SmallVector<llvm::Value *, 4> OriginalValue;
   // Stripped off array/pointer to get the underlying
@@ -2208,6 +2210,7 @@ void collectMapDataFromMapOperands(
     mapData.Names.push_back(LLVM::createMappingInformation(
         mapOp.getLoc(), *moduleTranslation.getOpenMPBuilder()));
     mapData.DevicePointers.push_back(llvm::OpenMPIRBuilder::DeviceInfoTy::None);
+    mapData.IsAMapping.push_back(true);
 
     // Check if this is a member mapping and correctly assign that it is, if
     // it is a member of a larger object.
@@ -2234,7 +2237,7 @@ void collectMapDataFromMapOperands(
     bool found = false;
     index = 0;
     for (llvm::Value *basePtr : mapData.OriginalValue) {
-      if (basePtr == val) {
+      if (basePtr == val && mapData.IsAMapping[index]) {
         found = true;
         mapData.Types[index] |=
             llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_RETURN_PARAM;
@@ -2272,6 +2275,7 @@ void collectMapDataFromMapOperands(
         mapData.Names.push_back(LLVM::createMappingInformation(
             mapOp.getLoc(), *moduleTranslation.getOpenMPBuilder()));
         mapData.DevicePointers.push_back(devInfoTy);
+        mapData.IsAMapping.push_back(false);
 
         // Check if this is a member mapping and correctly assign that it is, if
         // it is a member of a larger object.
