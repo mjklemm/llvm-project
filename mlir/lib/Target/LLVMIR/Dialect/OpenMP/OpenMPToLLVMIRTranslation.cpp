@@ -2089,6 +2089,7 @@ getRefPtrIfDeclareTarget(mlir::Value value,
 struct MapInfoData : llvm::OpenMPIRBuilder::MapInfosTy {
   llvm::SmallVector<bool, 4> IsDeclareTarget;
   llvm::SmallVector<bool, 4> IsAMember;
+  // Identify if mapping was added by mapClause or use_device clauses.
   llvm::SmallVector<bool, 4> IsAMapping;
   llvm::SmallVector<mlir::Operation *, 4> MapClause;
   llvm::SmallVector<llvm::Value *, 4> OriginalValue;
