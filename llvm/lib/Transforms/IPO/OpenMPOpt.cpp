@@ -1468,7 +1468,6 @@ private:
       };
       emitRemark<OptimizationRemark>(CI, "OMP160", Remark);
 
-      CGUpdater.removeCallSite(*CI);
       CI->eraseFromParent();
       Changed = true;
       ++NumOpenMPParallelRegionsDeleted;
@@ -1910,7 +1909,6 @@ private:
       else
         emitRemark<OptimizationRemark>(&F, "OMP170", Remark);
 
-      CGUpdater.removeCallSite(*CI);
       CI->replaceAllUsesWith(ReplVal);
       CI->eraseFromParent();
       ++NumOpenMPRuntimeCallsDeduplicated;
