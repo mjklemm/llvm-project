@@ -59,6 +59,34 @@ class OMPMapInfoFinalizationPass
            /*corresponding local alloca=*/fir::AllocaOp>
       localBoxAllocas;
 
+  unsigned long getDescriptorMapType(unsigned long mapTypeFlag,
+                                     mlir::Operation *target) {
+    auto newDescFlag = llvm::omp::OpenMPOffloadMappingFlags(mapTypeFlag);
+
+    if ((llvm::isa_and_nonnull<mlir::omp::TargetDataOp>(target) ||
+         llvm::isa_and_nonnull<mlir::omp::TargetOp>(target)) &&
+        static_cast<
+            std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
+            (newDescFlag &
+             llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM)) &&
+        static_cast<
+            std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
+            (newDescFlag & llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO) !=
+            llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO))
+      return static_cast<
+          std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
+          newDescFlag | llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO);
+
+    if ((llvm::isa_and_nonnull<mlir::omp::TargetDataOp>(target) ||
+         llvm::isa_and_nonnull<mlir::omp::TargetEnterDataOp>(target)) &&
+        mapTypeFlag == 0)
+      return static_cast<
+          std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
+          llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO);
+
+    return mapTypeFlag;
+  }
+
   void genDescriptorMemberMaps(mlir::omp::MapInfoOp op,
                                fir::FirOpBuilder &builder,
                                mlir::Operation *target) {
@@ -176,8 +204,9 @@ class OMPMapInfoFinalizationPass
                 mlir::IntegerType::get(builder.getContext(), 32)),
             llvm::ArrayRef<int32_t>({0})),
         /*bounds=*/mlir::SmallVector<mlir::Value>{},
-        builder.getIntegerAttr(builder.getIntegerType(64, false),
-                               op.getMapType().value()),
+        builder.getIntegerAttr(
+            builder.getIntegerType(64, false),
+            getDescriptorMapType(op.getMapType().value(), target)),
         op.getMapCaptureTypeAttr(), op.getNameAttr(), op.getPartialMapAttr());
     op.replaceAllUsesWith(newDescParentMapOp);
     op->erase();
