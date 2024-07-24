@@ -523,7 +523,7 @@ static void collectLoopLocalValues(fir::DoLoopOp doLoop,
 ///
 /// \param rewriter - builder used for updating \p allocRegion.
 static void localizeLoopLocalValue(mlir::Value local, mlir::Region &allocRegion,
-                            mlir::ConversionPatternRewriter &rewriter) {
+                                   mlir::ConversionPatternRewriter &rewriter) {
   rewriter.moveOpBefore(local.getDefiningOp(), &allocRegion.front().front());
 }
 } // namespace looputils
@@ -576,6 +576,10 @@ public:
     looputils::LoopNestToIndVarMap loopNest;
     bool hasRemainingNestedLoops =
         failed(looputils::collectLoopNest(doLoop, loopNest));
+    if (hasRemainingNestedLoops)
+      mlir::emitWarning(doLoop.getLoc(),
+                        "Some `do concurent` loops are not perfectly-nested. "
+                        "These will be serialzied.");
 
     mlir::IRMapping mapper;
 
@@ -632,16 +636,14 @@ public:
 
     rewriter.eraseOp(doLoop);
 
-    if (hasRemainingNestedLoops) {
-      // Mark `unordered` loops that are not perfectly nested to be skipped from
-      // the legality check of the `ConversionTarget` since we are not
-      // interested in mapping them to OpenMP.
-      ompLoopNest->walk([&](fir::DoLoopOp doLoop) {
-        if (doLoop.getUnordered()) {
-          concurrentLoopsToSkip.insert(doLoop);
-        }
-      });
-    }
+    // Mark `unordered` loops that are not perfectly nested to be skipped from
+    // the legality check of the `ConversionTarget` since we are not interested
+    // in mapping them to OpenMP.
+    ompLoopNest->walk([&](fir::DoLoopOp doLoop) {
+      if (doLoop.getUnordered()) {
+        concurrentLoopsToSkip.insert(doLoop);
+      }
+    });
 
     return mlir::success();
   }
