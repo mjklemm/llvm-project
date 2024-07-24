@@ -7,10 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/MathToROCDL/MathToROCDL.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -19,10 +20,10 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
 #include "../GPUCommon/OpToFuncCallLowering.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTMATHTOROCDL
@@ -42,8 +43,8 @@ static void populateOpPatterns(LLVMTypeConverter &converter,
   patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func);
 }
 
-static void populateMathToROCDLConversionPatterns(LLVMTypeConverter &converter,
-                                                  RewritePatternSet &patterns) {
+void mlir::populateMathToROCDLConversionPatterns(LLVMTypeConverter &converter,
+                                                 RewritePatternSet &patterns) {
   // Handled by mathToLLVM: math::AbsIOp
   // Handled by mathToLLVM: math::CopySignOp
   // Handled by mathToLLVM: math::CountLeadingZerosOp
@@ -90,9 +91,6 @@ static void populateMathToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                     "__ocml_expm1_f64");
   populateOpPatterns<math::FloorOp>(converter, patterns, "__ocml_floor_f32",
                                     "__ocml_floor_f64");
-  // FIXME: Different pass or new op in math?
-  //  populateOpPatterns<arith::RemFOp>(converter, patterns, "__ocml_fmod_f32",
-  //                                    "__ocml_fmod_f64");
   populateOpPatterns<math::LogOp>(converter, patterns, "__ocml_log_f32",
                                   "__ocml_log_f64");
   populateOpPatterns<math::Log10Op>(converter, patterns, "__ocml_log10_f32",
@@ -115,6 +113,10 @@ static void populateMathToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                   "__ocml_tan_f64");
   populateOpPatterns<math::ErfOp>(converter, patterns, "__ocml_erf_f32",
                                   "__ocml_erf_f64");
+  // Single arith pattern that needs a ROCDL call, probably not
+  // worth creating a separate pass for it.
+  populateOpPatterns<arith::RemFOp>(converter, patterns, "__ocml_fmod_f32",
+                                    "__ocml_fmod_f64");
 }
 
 namespace {
@@ -129,14 +131,12 @@ void ConvertMathToROCDLPass::runOnOperation() {
   auto m = getOperation();
   MLIRContext *ctx = m.getContext();
 
-
   RewritePatternSet patterns(&getContext());
   LowerToLLVMOptions options(ctx, DataLayout(m));
   LLVMTypeConverter converter(ctx, options);
   populateMathToROCDLConversionPatterns(converter, patterns);
-
   ConversionTarget target(getContext());
-  target.addLegalDialect<arith::ArithDialect, BuiltinDialect, func::FuncDialect,
+  target.addLegalDialect<BuiltinDialect, func::FuncDialect,
                          vector::VectorDialect, LLVM::LLVMDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::Exp2Op, LLVM::FAbsOp,
                       LLVM::FCeilOp, LLVM::FFloorOp, LLVM::FRemOp, LLVM::LogOp,

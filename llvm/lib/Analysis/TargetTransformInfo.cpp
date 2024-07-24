@@ -279,6 +279,10 @@ BranchProbability TargetTransformInfo::getPredictableBranchThreshold() const {
              : TTIImpl->getPredictableBranchThreshold();
 }
 
+InstructionCost TargetTransformInfo::getBranchMispredictPenalty() const {
+  return TTIImpl->getBranchMispredictPenalty();
+}
+
 bool TargetTransformInfo::hasBranchDivergence(const Function *F) const {
   return TTIImpl->hasBranchDivergence(F);
 }
@@ -1284,6 +1288,10 @@ unsigned TargetTransformInfo::getStoreVectorFactor(unsigned VF,
                                                    unsigned ChainSizeInBytes,
                                                    VectorType *VecTy) const {
   return TTIImpl->getStoreVectorFactor(VF, StoreSize, ChainSizeInBytes, VecTy);
+}
+
+bool TargetTransformInfo::preferFixedOverScalableIfEqualCost() const {
+  return TTIImpl->preferFixedOverScalableIfEqualCost();
 }
 
 bool TargetTransformInfo::preferInLoopReduction(unsigned Opcode, Type *Ty,
