@@ -40,7 +40,15 @@ def ConvertToSPIRVPass : Pass<"convert-to-spirv"> {
   let description = [{
     This is a generic pass to convert to SPIR-V.
   }];
-  let dependentDialects = ["spirv::SPIRVDialect"];
+  let dependentDialects = [
+    "spirv::SPIRVDialect",
+    "vector::VectorDialect",
+  ];
+  let options = [
+    Option<"runSignatureConversion", "run-signature-conversion", "bool",
+    /*default=*/"true",
+    "Run function signature conversion to convert vector types">
+  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -738,13 +746,14 @@ def ConvertMathToLLVMPass : Pass<"convert-math-to-llvm"> {
 //===----------------------------------------------------------------------===//
 
 def ConvertMathToROCDL : Pass<"convert-math-to-rocdl", "ModuleOp"> {
-  let summary = "Convert Math dialect to rocdl calls";
+  let summary = "Convert Math dialect to ROCDL library calls";
   let description = [{
-    This pass converts supported Math ops to rocdl calls.
+    This pass converts supported Math ops to ROCDL library calls.
   }];
   let dependentDialects = [
+    "arith::ArithDialect",
     "func::FuncDialect",
-    "math::MathDialect",
+    "ROCDL::ROCDLDialect",
     "vector::VectorDialect",
   ];
 }
