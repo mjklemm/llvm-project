@@ -316,3 +316,17 @@ logic of loop nests needs to be implemented.
 Right now, we map loop nests without analysing whether such mapping is safe to
 do or not. We probalby need to at least warn the use of unsafe loop nests due
 to loop-carried dependencies.
+
+### Non-rectangular loop nests
+
+So far, we did not need to use the pass for non-rectangular loop nests. For
+example:
+```fortran
+do concurrent(i=1:n)
+  do concurrent(j=i:n)
+    ...
+  end do
+end do
+```
+We defer this to the (hopefully) near future when we get the conversion in a
+good share for the samples/projects at hand.

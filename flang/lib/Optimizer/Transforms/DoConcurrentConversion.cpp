@@ -252,34 +252,49 @@ extractIndVarUpdateOps(fir::DoLoopOp doLoop) {
   return std::move(indVarUpdateOps);
 }
 
-/// Starting with a value and the end of a defintion/conversion chain, walk the
-/// chain backwards and collect all the visited ops along the way. For example,
-/// given this IR:
+/// Starting with a value at the end of a definition/conversion chain, walk the
+/// chain backwards and collect all the visited ops along the way. This is the
+/// same as the "backward slice" of the use-def chain of \p link.
+///
+/// If the root of the chain/slice is a constant op  (where convert operations
+/// on constant count as constants as well), then populate \p opChain with the
+/// extracted chain/slice. If not, then \p opChain will contains a single value:
+/// \p link.
+///
+/// The purpose of this function is that we pull in the chain of
+/// constant+conversion ops inside the parallel region if possible; which
+/// prevents creating an unnecessary shared/mapped value that crosses the OpenMP
+/// region.
+///
+/// For example, given this IR:
 /// ```
 /// %c10 = arith.constant 10 : i32
 /// %10 = fir.convert %c10 : (i32) -> index
 /// ```
 /// and giving `%10` as the starting input: `link`, `defChain` would contain
 /// both of the above ops.
-mlir::LogicalResult
-collectIndirectOpChain(mlir::Operation *link,
-                       llvm::SmallVectorImpl<mlir::Operation *> &opChain) {
-  while (!mlir::isa_and_present<mlir::arith::ConstantOp>(link)) {
-    if (auto convertOp = mlir::dyn_cast_if_present<fir::ConvertOp>(link)) {
-      opChain.push_back(link);
-      link = convertOp.getValue().getDefiningOp();
-      continue;
-    }
+void collectIndirectConstOpChain(mlir::Operation *link,
+                                 llvm::SetVector<mlir::Operation *> &opChain) {
+  mlir::BackwardSliceOptions options;
+  options.inclusive = true;
+  mlir::getBackwardSlice(link, &opChain, options);
 
-    std::string opStr;
-    llvm::raw_string_ostream opOs(opStr);
-    opOs << "Unexpected operation: " << *link;
-    return mlir::emitError(link->getLoc(), opOs.str());
-  }
+  assert(!opChain.empty());
 
-  opChain.push_back(link);
-  std::reverse(opChain.begin(), opChain.end());
-  return mlir::success();
+  bool isConstantChain = [&]() {
+    if (!mlir::isa_and_present<mlir::arith::ConstantOp>(opChain.front()))
+      return false;
+
+    return llvm::all_of(llvm::drop_begin(opChain), [](mlir::Operation *op) {
+      return mlir::isa_and_present<fir::ConvertOp>(op);
+    });
+  }();
+
+  if (isConstantChain)
+    return;
+
+  opChain.clear();
+  opChain.insert(link);
 }
 
 /// Starting with `outerLoop` collect a perfectly nested loop nest, if any. This
@@ -550,25 +565,6 @@ public:
                   "defining operation.");
     }
 
-    std::function<bool(mlir::Operation *)> isOpUltimatelyConstant =
-        [&](mlir::Operation *operation) {
-          if (mlir::isa_and_present<mlir::arith::ConstantOp>(operation))
-            return true;
-
-          if (auto convertOp =
-                  mlir::dyn_cast_if_present<fir::ConvertOp>(operation))
-            return isOpUltimatelyConstant(convertOp.getValue().getDefiningOp());
-
-          return false;
-        };
-
-    if (!isOpUltimatelyConstant(lbOp) || !isOpUltimatelyConstant(ubOp) ||
-        !isOpUltimatelyConstant(stepOp)) {
-      return rewriter.notifyMatchFailure(
-          doLoop, "`do concurrent` conversion is currently only supported for "
-                  "constant LB, UB, and step values.");
-    }
-
     llvm::SmallVector<mlir::Value> outermostLoopLives;
     looputils::collectLoopLiveIns(doLoop, outermostLoopLives);
     assert(!outermostLoopLives.empty());
@@ -832,13 +828,8 @@ private:
     // isolated from above.
     auto cloneBoundOrStepOpChain =
         [&](mlir::Operation *operation) -> mlir::Operation * {
-      llvm::SmallVector<mlir::Operation *> opChain;
-      mlir::LogicalResult extractResult =
-          looputils::collectIndirectOpChain(operation, opChain);
-
-      if (failed(extractResult)) {
-        return nullptr;
-      }
+      llvm::SetVector<mlir::Operation *> opChain;
+      looputils::collectIndirectConstOpChain(operation, opChain);
 
       mlir::Operation *result;
       for (mlir::Operation *link : opChain)
