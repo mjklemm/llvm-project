@@ -496,6 +496,8 @@ void Flang::addOffloadOptions(Compilation &C, const InputInfoList &Inputs,
     if (Args.hasArg(options::OPT_nogpulib))
       CmdArgs.push_back("-nogpulib");
   }
+
+  addOpenMPHostOffloadingArgs(C, JA, Args, CmdArgs);
 }
 
 static void addFloatingPointOptions(const Driver &D, const ArgList &Args,

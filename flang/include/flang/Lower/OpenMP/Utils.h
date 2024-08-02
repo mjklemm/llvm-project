@@ -108,7 +108,7 @@ void genObjectList(const ObjectList &objects,
 // mlir::OpBuilder::InsertPoint ip)
 // ```
 mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
-                               const mlir::omp::CollapseClauseOps &ops);
+                               const mlir::omp::LoopRelatedOps &ops);
 } // namespace omp
 } // namespace lower
 } // namespace Fortran

@@ -71,11 +71,11 @@ createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
 }
 
 mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
-                               const mlir::omp::CollapseClauseOps &ops) {
+                               const mlir::omp::LoopRelatedOps &ops) {
   using namespace mlir::arith;
-  assert(ops.loopLBVar.size() == ops.loopUBVar.size() &&
-         ops.loopLBVar.size() == ops.loopStepVar.size() &&
-         !ops.loopLBVar.empty() && "Invalid bounds or step");
+  assert(ops.loopLowerBounds.size() == ops.loopUpperBounds.size() &&
+         ops.loopLowerBounds.size() == ops.loopSteps.size() &&
+         !ops.loopLowerBounds.empty() && "Invalid bounds or step");
 
   // Get the bit width of an integer-like type.
   auto widthOf = [](mlir::Type ty) -> unsigned {
@@ -116,7 +116,7 @@ mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
   auto tripCount = builder.createIntegerConstant(loc, builder.getI32Type(), 1);
 
   for (auto [origLb, origUb, origStep] :
-       llvm::zip(ops.loopLBVar, ops.loopUBVar, ops.loopStepVar)) {
+       llvm::zip(ops.loopLowerBounds, ops.loopUpperBounds, ops.loopSteps)) {
     auto tmpS0 = builder.createIntegerConstant(loc, origStep.getType(), 0);
     auto [step, step0] = unifyToSignless(builder, origStep, tmpS0);
     auto reverseCond =
@@ -585,19 +585,20 @@ public:
     looputils::sinkLoopIVArgs(rewriter, loopNest);
 
     mlir::omp::TargetOp targetOp;
-    mlir::omp::LoopNestClauseOps loopNestClauseOps;
+    mlir::omp::LoopNestOperands loopNestClauseOps;
 
     if (mapToDevice) {
-      mlir::omp::TargetClauseOps clauseOps;
+      mlir::omp::TargetOperands targetClauseOps;
 
       // The outermost loop will contain all the live-in values in all nested
       // loops since live-in values are collected recursively for all nested
       // ops.
       for (mlir::Value liveIn : outermostLoopLives)
-        clauseOps.mapVars.push_back(genMapInfoOpForLiveIn(rewriter, liveIn));
+        targetClauseOps.mapVars.push_back(
+            genMapInfoOpForLiveIn(rewriter, liveIn));
 
       targetOp = genTargetOp(doLoop.getLoc(), rewriter, mapper,
-                             outermostLoopLives, clauseOps);
+                             outermostLoopLives, targetClauseOps);
       genTeamsOp(doLoop.getLoc(), rewriter, loopNest, mapper,
                  loopNestClauseOps);
       genDistributeOp(doLoop.getLoc(), rewriter);
@@ -620,14 +621,14 @@ public:
       auto parentModule = doLoop->getParentOfType<mlir::ModuleOp>();
       fir::FirOpBuilder firBuilder(rewriter, fir::getKindMapping(parentModule));
 
-      mlir::omp::CollapseClauseOps collapseClauseOps;
-      collapseClauseOps.loopLBVar.push_back(lbOp->getResult(0));
-      collapseClauseOps.loopUBVar.push_back(ubOp->getResult(0));
-      collapseClauseOps.loopStepVar.push_back(stepOp->getResult(0));
+      mlir::omp::LoopRelatedOps loopClauseOps;
+      loopClauseOps.loopLowerBounds.push_back(lbOp->getResult(0));
+      loopClauseOps.loopUpperBounds.push_back(ubOp->getResult(0));
+      loopClauseOps.loopSteps.push_back(stepOp->getResult(0));
 
       mlir::cast<mlir::omp::TargetOp>(targetOp).getTripCountMutable().assign(
           Fortran::lower::omp::internal::calculateTripCount(
-              firBuilder, doLoop.getLoc(), collapseClauseOps));
+              firBuilder, doLoop.getLoc(), loopClauseOps));
     }
 
     rewriter.eraseOp(doLoop);
@@ -722,7 +723,7 @@ private:
                                   mlir::ConversionPatternRewriter &rewriter,
                                   mlir::IRMapping &mapper,
                                   llvm::ArrayRef<mlir::Value> liveIns,
-                                  mlir::omp::TargetClauseOps &clauseOps) const {
+                                  mlir::omp::TargetOperands &clauseOps) const {
     auto targetOp = rewriter.create<mlir::omp::TargetOp>(loc, clauseOps);
 
     mlir::Region &region = targetOp.getRegion();
@@ -801,9 +802,9 @@ private:
   mlir::omp::TeamsOp
   genTeamsOp(mlir::Location loc, mlir::ConversionPatternRewriter &rewriter,
              looputils::LoopNestToIndVarMap &loopNest, mlir::IRMapping &mapper,
-             mlir::omp::LoopNestClauseOps &loopNestClauseOps) const {
+             mlir::omp::LoopNestOperands &loopNestClauseOps) const {
     auto teamsOp = rewriter.create<mlir::omp::TeamsOp>(
-        loc, /*clauses=*/mlir::omp::TeamsClauseOps{});
+        loc, /*clauses=*/mlir::omp::TeamsOperands{});
 
     rewriter.createBlock(&teamsOp.getRegion());
     rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
@@ -817,8 +818,8 @@ private:
   void genLoopNestClauseOps(
       mlir::Location loc, mlir::ConversionPatternRewriter &rewriter,
       looputils::LoopNestToIndVarMap &loopNest, mlir::IRMapping &mapper,
-      mlir::omp::LoopNestClauseOps &loopNestClauseOps) const {
-    assert(loopNestClauseOps.loopLBVar.empty() &&
+      mlir::omp::LoopNestOperands &loopNestClauseOps) const {
+    assert(loopNestClauseOps.loopLowerBounds.empty() &&
            "Loop nest bounds were already emitted!");
 
     // Clones the chain of ops defining a certain loop bound or its step into
@@ -840,26 +841,26 @@ private:
 
     for (auto &[doLoop, _] : loopNest) {
       mlir::Operation *lbOp = doLoop.getLowerBound().getDefiningOp();
-      loopNestClauseOps.loopLBVar.push_back(
+      loopNestClauseOps.loopLowerBounds.push_back(
           cloneBoundOrStepOpChain(lbOp)->getResult(0));
 
       mlir::Operation *ubOp = doLoop.getUpperBound().getDefiningOp();
-      loopNestClauseOps.loopUBVar.push_back(
+      loopNestClauseOps.loopUpperBounds.push_back(
           cloneBoundOrStepOpChain(ubOp)->getResult(0));
 
       mlir::Operation *stepOp = doLoop.getStep().getDefiningOp();
-      loopNestClauseOps.loopStepVar.push_back(
+      loopNestClauseOps.loopSteps.push_back(
           cloneBoundOrStepOpChain(stepOp)->getResult(0));
     }
 
-    loopNestClauseOps.loopInclusiveAttr = rewriter.getUnitAttr();
+    loopNestClauseOps.loopInclusive = rewriter.getUnitAttr();
   }
 
   mlir::omp::DistributeOp
   genDistributeOp(mlir::Location loc,
                   mlir::ConversionPatternRewriter &rewriter) const {
     auto distOp = rewriter.create<mlir::omp::DistributeOp>(
-        loc, /*clauses=*/mlir::omp::DistributeClauseOps{});
+        loc, /*clauses=*/mlir::omp::DistributeOperands{});
 
     rewriter.createBlock(&distOp.getRegion());
     rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
@@ -899,7 +900,7 @@ private:
   genParallelOp(mlir::Location loc, mlir::ConversionPatternRewriter &rewriter,
                 looputils::LoopNestToIndVarMap &loopNest,
                 mlir::IRMapping &mapper,
-                mlir::omp::LoopNestClauseOps &loopNestClauseOps) const {
+                mlir::omp::LoopNestOperands &loopNestClauseOps) const {
     auto parallelOp = rewriter.create<mlir::omp::ParallelOp>(loc);
     rewriter.createBlock(&parallelOp.getRegion());
     rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
@@ -917,7 +918,7 @@ private:
   mlir::omp::LoopNestOp
   genWsLoopOp(mlir::ConversionPatternRewriter &rewriter, fir::DoLoopOp doLoop,
               mlir::IRMapping &mapper,
-              const mlir::omp::LoopNestClauseOps &clauseOps) const {
+              const mlir::omp::LoopNestOperands &clauseOps) const {
 
     auto wsloopOp = rewriter.create<mlir::omp::WsloopOp>(doLoop.getLoc());
     rewriter.createBlock(&wsloopOp.getRegion());

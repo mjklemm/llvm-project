@@ -376,11 +376,11 @@ createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
 }
 
 mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
-                               const mlir::omp::CollapseClauseOps &ops) {
+                               const mlir::omp::LoopRelatedOps &ops) {
   using namespace mlir::arith;
-  assert(ops.loopLBVar.size() == ops.loopUBVar.size() &&
-         ops.loopLBVar.size() == ops.loopStepVar.size() &&
-         !ops.loopLBVar.empty() && "Invalid bounds or step");
+  assert(ops.loopLowerBounds.size() == ops.loopUpperBounds.size() &&
+         ops.loopLowerBounds.size() == ops.loopSteps.size() &&
+         !ops.loopLowerBounds.empty() && "Invalid bounds or step");
 
   // Get the bit width of an integer-like type.
   auto widthOf = [](mlir::Type ty) -> unsigned {
@@ -421,7 +421,7 @@ mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
   auto tripCount = builder.createIntegerConstant(loc, builder.getI32Type(), 1);
 
   for (auto [origLb, origUb, origStep] :
-       llvm::zip(ops.loopLBVar, ops.loopUBVar, ops.loopStepVar)) {
+       llvm::zip(ops.loopLowerBounds, ops.loopUpperBounds, ops.loopSteps)) {
     auto tmpS0 = builder.createIntegerConstant(loc, origStep.getType(), 0);
     auto [step, step0] = unifyToSignless(builder, origStep, tmpS0);
     auto reverseCond =
