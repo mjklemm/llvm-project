@@ -6010,7 +6010,8 @@ TEST_F(OpenMPIRBuilderTest, TargetRegion) {
   TargetRegionEntryInfo EntryInfo("func", 42, 4711, 17);
   OpenMPIRBuilder::LocationDescription OmpLoc({Builder.saveIP(), DL});
   Builder.restoreIP(OMPBuilder.createTarget(
-      OmpLoc, /*IsSPMD=*/false, Builder.saveIP(), Builder.saveIP(), EntryInfo,
+      OmpLoc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, Builder.saveIP(),
+      Builder.saveIP(), EntryInfo,
       /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
       /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(), Inputs,
       GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));
@@ -6117,8 +6118,8 @@ TEST_F(OpenMPIRBuilderTest, TargetRegionDevice) {
                                   /*Line=*/3, /*Count=*/0);
 
   Builder.restoreIP(OMPBuilder.createTarget(
-      Loc, /*IsSPMD=*/false, EntryIP, EntryIP, EntryInfo,
-      /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
+      Loc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, EntryIP, EntryIP,
+      EntryInfo, /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
       /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(),
       CapturedArgs, GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));
 
@@ -6267,7 +6268,8 @@ TEST_F(OpenMPIRBuilderTest, ConstantAllocaRaise) {
                                   /*Line=*/3, /*Count=*/0);
 
   Builder.restoreIP(OMPBuilder.createTarget(
-      Loc, /*IsSPMD=*/false, EntryIP, EntryIP, EntryInfo,
+      Loc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, EntryIP, EntryIP,
+      EntryInfo,
       /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
       /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(),
       CapturedArgs, GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));

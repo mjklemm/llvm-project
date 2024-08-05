@@ -3693,14 +3693,20 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
   bool isTargetDevice = ompBuilder->Config.isTargetDevice();
   bool isGPU = ompBuilder->Config.isGPU();
+
   auto parentFn = opInst.getParentOfType<LLVM::LLVMFuncOp>();
   auto targetOp = cast<omp::TargetOp>(opInst);
   auto &targetRegion = targetOp.getRegion();
   DataLayout dl = DataLayout(opInst.getParentOfType<ModuleOp>());
   SmallVector<Value> mapVars = targetOp.getMapVars();
   llvm::Function *llvmOutlinedFn = nullptr;
-
   llvm::OpenMPIRBuilder::TargetKernelRuntimeBounds runtimeBounds;
+
+  // TODO: It can also be false if a compile-time constant `false` IF clause is
+  // specified.
+  bool isOffloadEntry =
+      isTargetDevice || !ompBuilder->Config.TargetTriples.empty();
+
   LogicalResult bodyGenStatus = success();
   using InsertPointTy = llvm::OpenMPIRBuilder::InsertPointTy;
   auto bodyCB = [&](InsertPointTy allocaIP,
@@ -3805,9 +3811,9 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
         moduleTranslation.lookupValue(targetThreadLimit);
 
   builder.restoreIP(moduleTranslation.getOpenMPBuilder()->createTarget(
-      ompLoc, targetOp.isTargetSPMDLoop(), allocaIP, builder.saveIP(),
-      entryInfo, defaultBounds, runtimeBounds, kernelInput, genMapInfoCB,
-      bodyCB, argAccessorCB, dds));
+      ompLoc, targetOp.isTargetSPMDLoop(), isOffloadEntry, allocaIP,
+      builder.saveIP(), entryInfo, defaultBounds, runtimeBounds, kernelInput,
+      genMapInfoCB, bodyCB, argAccessorCB, dds));
 
   // Remap access operations to declare target reference pointers for the
   // device, essentially generating extra loadop's as necessary
@@ -4340,6 +4346,23 @@ LogicalResult OpenMPDialectLLVMIRTranslationInterface::amendOperation(
                     bitEnumContainsAll(flags, Requires::unified_shared_memory));
                 config.setHasRequiresDynamicAllocators(
                     bitEnumContainsAll(flags, Requires::dynamic_allocators));
+                return success();
+              }
+              return failure();
+            })
+      .Case("omp.target_triples",
+            [&](Attribute attr) {
+              if (auto triplesAttr = dyn_cast<ArrayAttr>(attr)) {
+                llvm::OpenMPIRBuilderConfig &config =
+                    moduleTranslation.getOpenMPBuilder()->Config;
+                config.TargetTriples.clear();
+                config.TargetTriples.reserve(triplesAttr.size());
+                for (Attribute tripleAttr : triplesAttr) {
+                  if (auto tripleStrAttr = dyn_cast<StringAttr>(tripleAttr))
+                    config.TargetTriples.emplace_back(tripleStrAttr.getValue());
+                  else
+                    return failure();
+                }
                 return success();
               }
               return failure();
