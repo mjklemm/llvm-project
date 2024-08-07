@@ -134,6 +134,8 @@ private:
     assert(targetParentRegion != nullptr &&
            "Expected omp.target op to be nested in a parent region.");
 
+    llvm::DenseSet<mlir::Operation *> visitedOps;
+
     // Walk the parent region in pre-order to make sure we visit `targetOp`
     // before its nested ops.
     targetParentRegion->walk<mlir::WalkOrder::PreOrder>(
@@ -149,6 +151,10 @@ private:
             if (operandDefiningOp == nullptr)
               continue;
 
+            if (visitedOps.contains(operandDefiningOp))
+              continue;
+
+            visitedOps.insert(operandDefiningOp);
             auto parentTargetOp =
                 operandDefiningOp->getParentOfType<mlir::omp::TargetOp>();
 
@@ -179,7 +185,9 @@ private:
 
     mlir::IRMapping mapper;
     builder.setInsertionPoint(escapingOperand->getOwner());
+
     mlir::Operation *lastSliceOp = nullptr;
+    llvm::SetVector<mlir::Operation *> opsToClone;
 
     for (auto *op : backwardSlice) {
       // DeclareOps need special handling by searching for the corresponding ops
@@ -188,11 +196,16 @@ private:
       //
       // TODO this might need a more elaborate handling in the future but for
       // now this seems sufficient for our purposes.
-      if (llvm::isa<hlfir::DeclareOp>(op))
+      if (llvm::isa<hlfir::DeclareOp>(op)) {
+        opsToClone.clear();
         break;
+      }
 
-      lastSliceOp = builder.clone(*op, mapper);
+      opsToClone.insert(op);
     }
+
+    for (mlir::Operation *op : opsToClone)
+      lastSliceOp = builder.clone(*op, mapper);
 
     builder.restoreInsertionPoint(ip);
     return lastSliceOp;

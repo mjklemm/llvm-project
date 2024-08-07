@@ -62,3 +62,34 @@ end subroutine
 ! CHECK:   omp.target
 
 ! CHECK: }
+
+
+subroutine bounds_expr_in_loop_control(array)
+  real, intent(out) :: array(:,:)
+  integer :: bounds(2), i, j
+  bounds = shape(array)
+
+  !$omp target teams distribute parallel do simd collapse(2)
+  do j = 1,bounds(2)
+    do i = 1,bounds(1)
+      array(i,j) = 0.
+    enddo
+  enddo
+end subroutine bounds_expr_in_loop_control
+
+
+! CHECK: func.func @_QPbounds_expr_in_loop_control(%[[FUNC_ARG:.*]]: {{.*}}) {
+
+! CHECK:   %[[BOUNDS_DECL:.*]]:2 = hlfir.declare %{{.*}}(%{{.*}}) {uniq_name = "{{.*}}Ebounds"} : (!fir.ref<!fir.array<2xi32>>, !fir.shape<1>) -> ({{.*}})
+
+! Verify that the host declaration of `bounds` (i.e. not the target/mapped one)
+! is used for the trip count calculation. Trip count is calculation ops are emitted
+! directly before the `omp.target` op and after all `omp.map.info` op; hence the
+! `CHECK-NOT: ...` line.
+
+! CHECK: hlfir.designate %[[BOUNDS_DECL:.*]]#0 (%c2{{.*}})
+! CHECK: hlfir.designate %[[BOUNDS_DECL:.*]]#0 (%c1{{.*}})
+! CHECK-NOT: omp.map.info
+! CHECK: omp.target
+
+! CHECK: }
