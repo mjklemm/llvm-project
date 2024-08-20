@@ -5,7 +5,10 @@
 ! occur due to multiple teams trying to access the same allocation.
 
 ! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=host %s -o - \
-! RUN:   | FileCheck %s
+! RUN:   | FileCheck %s --check-prefixes=COMMON
+
+! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %s -o - \
+! RUN:   | FileCheck %s --check-prefixes=COMMON,DEVICE
 
 module struct_mod
     type test_struct
@@ -49,18 +52,27 @@ program main
     print *, "total =", total
 end program main
 
-! CHECK: omp.parallel {
-! CHECK:   %[[LOCAL_TEMP:.*]] = fir.alloca !fir.type<_QMstruct_modTtest_struct{x_:!fir.box<!fir.heap<i32>>}> {bindc_name = ".result"}
-! CHECK:   omp.wsloop {
-! CHECK:     omp.loop_nest {{.*}} {
-! CHECK:       %[[TEMP_VAL:.*]] = fir.call @_QMstruct_modPconstruct_from_components
-! CHECK:       fir.save_result %[[TEMP_VAL]] to %[[LOCAL_TEMP]]
-! CHECK:       %[[EMBOXED_LOCAL:.*]] = fir.embox %[[LOCAL_TEMP]]
-! CHECK:       %[[CONVERTED_LOCAL:.*]] = fir.convert %[[EMBOXED_LOCAL]]
-! CHECK:       fir.call @_FortranADestroy(%[[CONVERTED_LOCAL]])
-! CHECK:       omp.yield
-! CHECK:     }
-! CHECK:     omp.terminator
-! CHECK:   }
-! CHECK:   omp.terminator
-! CHECK: }
+! DEVICE: omp.target {{.*}} {
+! DEVICE: omp.teams {
+! COMMON: omp.parallel {
+! COMMON:   %[[LOCAL_TEMP:.*]] = fir.alloca !fir.type<_QMstruct_modTtest_struct{x_:!fir.box<!fir.heap<i32>>}> {bindc_name = ".result"}
+! DEVICE:   omp.distribute {
+! COMMON:   omp.wsloop {
+! COMMON:     omp.loop_nest {{.*}} {
+! COMMON:       %[[TEMP_VAL:.*]] = fir.call @_QMstruct_modPconstruct_from_components
+! COMMON:       fir.save_result %[[TEMP_VAL]] to %[[LOCAL_TEMP]]
+! COMMON:       %[[EMBOXED_LOCAL:.*]] = fir.embox %[[LOCAL_TEMP]]
+! COMMON:       %[[CONVERTED_LOCAL:.*]] = fir.convert %[[EMBOXED_LOCAL]]
+! COMMON:       fir.call @_FortranADestroy(%[[CONVERTED_LOCAL]])
+! COMMON:       omp.yield
+! COMMON:     }
+! COMMON:     omp.terminator
+! COMMON:   }
+! DEVICE:   omp.terminator
+! DEVICE:   }
+! COMMON:   omp.terminator
+! COMMON: }
+! DEVICE: omp.terminator
+! DEVICE: }
+! DEVICE: omp.terminator
+! DEVICE: }

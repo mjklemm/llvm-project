@@ -565,9 +565,9 @@ public:
                   "defining operation.");
     }
 
-    llvm::SmallVector<mlir::Value> outermostLoopLives;
-    looputils::collectLoopLiveIns(doLoop, outermostLoopLives);
-    assert(!outermostLoopLives.empty());
+    llvm::SmallVector<mlir::Value> outermostLoopLiveIns;
+    looputils::collectLoopLiveIns(doLoop, outermostLoopLiveIns);
+    assert(!outermostLoopLiveIns.empty());
 
     looputils::LoopNestToIndVarMap loopNest;
     bool hasRemainingNestedLoops =
@@ -577,15 +577,22 @@ public:
                         "Some `do concurent` loops are not perfectly-nested. "
                         "These will be serialzied.");
 
-    mlir::IRMapping mapper;
-
     llvm::SetVector<mlir::Value> locals;
     looputils::collectLoopLocalValues(loopNest.back().first, locals);
+    // We do not want to map "loop-local" values to the device through
+    // `omp.map.info` ops. Therefore, we remove them from the list of live-ins.
+    outermostLoopLiveIns.erase(llvm::remove_if(outermostLoopLiveIns,
+                                               [&](mlir::Value liveIn) {
+                                                 return locals.contains(liveIn);
+                                               }),
+                               outermostLoopLiveIns.end());
 
     looputils::sinkLoopIVArgs(rewriter, loopNest);
 
     mlir::omp::TargetOp targetOp;
     mlir::omp::LoopNestOperands loopNestClauseOps;
+
+    mlir::IRMapping mapper;
 
     if (mapToDevice) {
       mlir::omp::TargetOperands targetClauseOps;
@@ -593,12 +600,12 @@ public:
       // The outermost loop will contain all the live-in values in all nested
       // loops since live-in values are collected recursively for all nested
       // ops.
-      for (mlir::Value liveIn : outermostLoopLives)
+      for (mlir::Value liveIn : outermostLoopLiveIns)
         targetClauseOps.mapVars.push_back(
             genMapInfoOpForLiveIn(rewriter, liveIn));
 
       targetOp = genTargetOp(doLoop.getLoc(), rewriter, mapper,
-                             outermostLoopLives, targetClauseOps);
+                             outermostLoopLiveIns, targetClauseOps);
       genTeamsOp(doLoop.getLoc(), rewriter);
     }
 
