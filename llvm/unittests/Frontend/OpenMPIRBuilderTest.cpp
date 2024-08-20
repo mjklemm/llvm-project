@@ -6009,11 +6009,16 @@ TEST_F(OpenMPIRBuilderTest, TargetRegion) {
 
   TargetRegionEntryInfo EntryInfo("func", 42, 4711, 17);
   OpenMPIRBuilder::LocationDescription OmpLoc({Builder.saveIP(), DL});
+  OpenMPIRBuilder::TargetKernelDefaultBounds DefaultBounds;
+  DefaultBounds.MaxTeams.push_back(-1);
+  DefaultBounds.MaxThreads.push_back(-1);
+  OpenMPIRBuilder::TargetKernelRuntimeBounds RuntimeBounds;
+  RuntimeBounds.TargetThreadLimit.push_back(nullptr);
+  RuntimeBounds.TeamsThreadLimit.push_back(nullptr);
+  RuntimeBounds.MaxTeams.push_back(nullptr);
   Builder.restoreIP(OMPBuilder.createTarget(
       OmpLoc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, Builder.saveIP(),
-      Builder.saveIP(), EntryInfo,
-      /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
-      /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(), Inputs,
+      Builder.saveIP(), EntryInfo, DefaultBounds, RuntimeBounds, Inputs,
       GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));
   OMPBuilder.finalize();
   Builder.CreateRetVoid();
@@ -6117,11 +6122,17 @@ TEST_F(OpenMPIRBuilderTest, TargetRegionDevice) {
   TargetRegionEntryInfo EntryInfo("parent", /*DeviceID=*/1, /*FileID=*/2,
                                   /*Line=*/3, /*Count=*/0);
 
+  OpenMPIRBuilder::TargetKernelDefaultBounds DefaultBounds;
+  DefaultBounds.MaxTeams.push_back(-1);
+  DefaultBounds.MaxThreads.push_back(-1);
+  OpenMPIRBuilder::TargetKernelRuntimeBounds RuntimeBounds;
+  RuntimeBounds.TargetThreadLimit.push_back(nullptr);
+  RuntimeBounds.TeamsThreadLimit.push_back(nullptr);
+  RuntimeBounds.MaxTeams.push_back(nullptr);
   Builder.restoreIP(OMPBuilder.createTarget(
       Loc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, EntryIP, EntryIP,
-      EntryInfo, /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
-      /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(),
-      CapturedArgs, GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));
+      EntryInfo, DefaultBounds, RuntimeBounds, CapturedArgs, GenMapInfoCB,
+      BodyGenCB, SimpleArgAccessorCB));
 
   Builder.CreateRetVoid();
   OMPBuilder.finalize();
@@ -6267,12 +6278,17 @@ TEST_F(OpenMPIRBuilderTest, ConstantAllocaRaise) {
   TargetRegionEntryInfo EntryInfo("parent", /*DeviceID=*/1, /*FileID=*/2,
                                   /*Line=*/3, /*Count=*/0);
 
+  OpenMPIRBuilder::TargetKernelDefaultBounds DefaultBounds;
+  DefaultBounds.MaxTeams.push_back(-1);
+  DefaultBounds.MaxThreads.push_back(-1);
+  OpenMPIRBuilder::TargetKernelRuntimeBounds RuntimeBounds;
+  RuntimeBounds.TargetThreadLimit.push_back(nullptr);
+  RuntimeBounds.TeamsThreadLimit.push_back(nullptr);
+  RuntimeBounds.MaxTeams.push_back(nullptr);
   Builder.restoreIP(OMPBuilder.createTarget(
       Loc, /*IsSPMD=*/false, /*IsOffloadEntry=*/true, EntryIP, EntryIP,
-      EntryInfo,
-      /*DefaultBounds=*/OpenMPIRBuilder::TargetKernelDefaultBounds(),
-      /*RuntimeBounds=*/OpenMPIRBuilder::TargetKernelRuntimeBounds(),
-      CapturedArgs, GenMapInfoCB, BodyGenCB, SimpleArgAccessorCB));
+      EntryInfo, DefaultBounds, RuntimeBounds, CapturedArgs, GenMapInfoCB,
+      BodyGenCB, SimpleArgAccessorCB));
 
   Builder.CreateRetVoid();
   OMPBuilder.finalize();

@@ -2191,9 +2191,9 @@ public:
   /// populate associated static structures.
   struct TargetKernelDefaultBounds {
     int32_t MinTeams = 1;
-    int32_t MaxTeams = -1;
+    SmallVector<int32_t> MaxTeams;
     int32_t MinThreads = 1;
-    int32_t MaxThreads = -1;
+    SmallVector<int32_t> MaxThreads;
     int32_t ReductionDataSize = 0;
     int32_t ReductionBufferLength = 0;
   };
@@ -2204,10 +2204,10 @@ public:
   /// prior to the call to the kernel launch OpenMP RTL function.
   struct TargetKernelRuntimeBounds {
     Value *LoopTripCount = nullptr;
-    Value *TargetThreadLimit = nullptr;
-    Value *TeamsThreadLimit = nullptr;
+    SmallVector<Value *> TargetThreadLimit;
+    SmallVector<Value *> TeamsThreadLimit;
     Value *MinTeams = nullptr;
-    Value *MaxTeams = nullptr;
+    SmallVector<Value *> MaxTeams;
     Value *MaxThreads = nullptr;
   };
 
@@ -2221,9 +2221,9 @@ public:
     /// The number of iterations
     Value *TripCount = nullptr;
     /// The number of teams.
-    Value *NumTeams = nullptr;
+    ArrayRef<Value *> NumTeams;
     /// The number of threads.
-    Value *NumThreads = nullptr;
+    ArrayRef<Value *> NumThreads;
     /// The size of the dynamic shared memory.
     Value *DynCGGroupMem = nullptr;
     /// True if the kernel has 'no wait' clause.
@@ -2232,8 +2232,9 @@ public:
     // Constructors for TargetKernelArgs.
     TargetKernelArgs() {}
     TargetKernelArgs(unsigned NumTargetItems, TargetDataRTArgs RTArgs,
-                     Value *TripCount, Value *NumTeams, Value *NumThreads,
-                     Value *DynCGGroupMem, bool HasNoWait)
+                     Value *TripCount, ArrayRef<Value *> NumTeams,
+                     ArrayRef<Value *> NumThreads, Value *DynCGGroupMem,
+                     bool HasNoWait)
         : NumTargetItems(NumTargetItems), RTArgs(RTArgs), TripCount(TripCount),
           NumTeams(NumTeams), NumThreads(NumThreads),
           DynCGGroupMem(DynCGGroupMem), HasNoWait(HasNoWait) {}
@@ -2873,15 +2874,15 @@ public:
   /// \param CodeGenIP The insertion point where the call to the outlined
   /// function should be emitted.
   /// \param EntryInfo The entry information about the function.
-  /// \param DefaultBounds The default kernel lanuch bounds.
-  /// \param RuntimeBounds The runtime kernel lanuch bounds.
+  /// \param DefaultBounds The default kernel launch bounds.
+  /// \param RuntimeBounds The runtime kernel launch bounds.
   /// \param Inputs The input values to the region that will be passed.
   /// as arguments to the outlined function.
   /// \param BodyGenCB Callback that will generate the region code.
   /// \param ArgAccessorFuncCB Callback that will generate accessors
-  /// instructions for passed in target arguments where neccessary
+  /// instructions for passed in target arguments where necessary.
   /// \param Dependencies A vector of DependData objects that carry
-  // dependency information as passed in the depend clause
+  // dependency information as passed in the depend clause.
   InsertPointTy createTarget(const LocationDescription &Loc, bool IsSPMD,
                              bool IsOffloadEntry,
                              OpenMPIRBuilder::InsertPointTy AllocaIP,

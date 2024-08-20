@@ -52,13 +52,13 @@ func.func @_QPfoo() {
             }
             // CHECK: omp.terminator
             omp.terminator
-          }
+          } {omp.composite}
           // CHECK: omp.terminator
           omp.terminator
-        }
-         // CHECK: omp.terminator
+        } {omp.composite}
+        // CHECK: omp.terminator
         omp.terminator
-      }
+      } {omp.composite}
       // CHECK: omp.terminator
       omp.terminator
     }

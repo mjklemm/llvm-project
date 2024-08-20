@@ -88,22 +88,9 @@ func.func @proc_bind_once() {
 // -----
 
 func.func @invalid_parent(%lb : index, %ub : index, %step : index) {
-  // expected-error@+1 {{op expects parent op to be a valid loop wrapper}}
+  // expected-error@+1 {{op expects parent op to be a loop wrapper}}
   omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
     omp.yield
-  }
-}
-
-// -----
-
-func.func @invalid_wrapper(%lb : index, %ub : index, %step : index) {
-  omp.parallel {
-    %0 = arith.constant 0 : i32
-    // expected-error@+1 {{op expects parent op to be a valid loop wrapper}}
-    omp.loop_nest (%iv2) : index = (%lb) to (%ub) step (%step) {
-      omp.yield
-    }
-    omp.terminator
   }
 }
 
@@ -156,9 +143,9 @@ func.func @invalid_nested_wrapper(%lb : index, %ub : index, %step : index) {
         omp.yield
       }
       omp.terminator
-    }
+    } {omp.composite}
     omp.terminator
-  }
+  } {omp.composite}
 }
 
 // -----
@@ -1905,9 +1892,9 @@ func.func @taskloop(%lb: i32, %ub: i32, %step: i32) {
         omp.yield
       }
       omp.terminator
-    }
+    } {omp.composite}
     omp.terminator
-  }
+  } {omp.composite}
   return
 }
 
@@ -2113,9 +2100,9 @@ func.func @omp_distribute_nested_wrapper1(%lb: index, %ub: index, %step: index) 
         "omp.yield"() : () -> ()
       }
       "omp.terminator"() : () -> ()
-    }) : () -> ()
+    }) {omp.composite} : () -> ()
     "omp.terminator"() : () -> ()
-  }
+  } {omp.composite}
 }
 
 // -----
@@ -2128,7 +2115,22 @@ func.func @omp_distribute_nested_wrapper2(%lb: index, %ub: index, %step: index) 
         "omp.yield"() : () -> ()
       }
       "omp.terminator"() : () -> ()
-    }) : () -> ()
+    }) {omp.composite} : () -> ()
+    "omp.terminator"() : () -> ()
+  } {omp.composite}
+}
+
+// -----
+
+func.func @omp_distribute_nested_wrapper3(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+  omp.distribute {
+    "omp.simd"() ({
+      omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+        "omp.yield"() : () -> ()
+      }
+      "omp.terminator"() : () -> ()
+    }) {omp.composite} : () -> ()
     "omp.terminator"() : () -> ()
   }
 }
@@ -2338,5 +2340,186 @@ func.func @masked_arg_count_mismatch(%arg0: i32, %arg1: i32) {
   "omp.masked"(%arg0, %arg1) ({
       omp.terminator
     }) : (i32, i32) -> ()
+  return
+}
+
+// -----
+func.func @omp_parallel_missing_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error@+1 {{'omp.composite' attribute missing from composite operation}}
+  omp.parallel {
+    omp.distribute {
+      omp.wsloop {
+        omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+          omp.yield
+        }
+        omp.terminator
+      } {omp.composite}
+      omp.terminator
+    } {omp.composite}
+    omp.terminator
+  }
+  return
+}
+
+// -----
+func.func @omp_parallel_invalid_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute present in non-composite operation}}
+  omp.parallel {
+    omp.wsloop {
+      omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+        omp.yield
+      }
+      omp.terminator
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_parallel_invalid_composite2(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{unexpected OpenMP operation inside of composite 'omp.parallel'}}
+  omp.parallel {
+    omp.barrier
+    omp.distribute {
+      omp.wsloop {
+        omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+          omp.yield
+        }
+        omp.terminator
+      } {omp.composite}
+      omp.terminator
+    } {omp.composite}
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_wsloop_missing_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+  omp.wsloop {
+    omp.simd {
+      omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+        omp.yield
+      }
+      omp.terminator
+    } {omp.composite}
+    omp.terminator
+  }
+  return
+}
+
+// -----
+func.func @omp_wsloop_invalid_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute present in non-composite wrapper}}
+  omp.wsloop {
+    omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+      omp.yield
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_wsloop_missing_composite_2(%lb: index, %ub: index, %step: index) -> () {
+  omp.parallel {
+    omp.distribute {
+      // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+      omp.wsloop {
+        omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+          omp.yield
+        }
+        omp.terminator
+      }
+      omp.terminator
+    } {omp.composite}
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_simd_missing_composite(%lb: index, %ub: index, %step: index) -> () {
+  omp.wsloop {
+    // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+    omp.simd {
+      omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+        omp.yield
+      }
+      omp.terminator
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_simd_invalid_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute present in non-composite wrapper}}
+  omp.simd {
+    omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+      omp.yield
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_distribute_missing_composite(%lb: index, %ub: index, %step: index) -> () {
+  omp.parallel {
+    // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+    omp.distribute {
+      omp.wsloop {
+        omp.loop_nest (%iv) : index = (%lb) to (%ub) step (%step) {
+          omp.yield
+        }
+        omp.terminator
+      } {omp.composite}
+      omp.terminator
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_distribute_invalid_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute present in non-composite wrapper}}
+  omp.distribute {
+    omp.loop_nest (%0) : index = (%lb) to (%ub) step (%step) {
+      omp.yield
+    }
+    omp.terminator
+  } {omp.composite}
+  return
+}
+
+// -----
+func.func @omp_taskloop_missing_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute missing from composite wrapper}}
+  omp.taskloop {
+    omp.simd {
+      omp.loop_nest (%i) : index = (%lb) to (%ub) step (%step)  {
+        omp.yield
+      }
+      omp.terminator
+    } {omp.composite}
+    omp.terminator
+  }
+  return
+}
+
+// -----
+func.func @omp_taskloop_invalid_composite(%lb: index, %ub: index, %step: index) -> () {
+  // expected-error @below {{'omp.composite' attribute present in non-composite wrapper}}
+  omp.taskloop {
+    omp.loop_nest (%i) : index = (%lb) to (%ub) step (%step)  {
+      omp.yield
+    }
+    omp.terminator
+  } {omp.composite}
   return
 }

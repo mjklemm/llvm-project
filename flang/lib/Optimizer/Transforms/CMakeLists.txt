@@ -32,12 +32,14 @@ add_flang_library(FIRTransforms
   DoConcurrentConversion.cpp
 
   DEPENDS
+  CUFAttrs
   CUFDialect
   FIRDialect
   FIROptTransformsPassIncGen
   HLFIROpsIncGen
 
   LINK_LIBS
+  CUFAttrs
   CUFDialect
   FIRAnalysis
   FIRBuilder

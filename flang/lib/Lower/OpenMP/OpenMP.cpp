@@ -219,7 +219,7 @@ static void genOMPDispatch(lower::AbstractConverter &converter,
                            semantics::SemanticsContext &semaCtx,
                            lower::pft::Evaluation &eval, mlir::Location loc,
                            const ConstructQueue &queue,
-                           ConstructQueue::iterator item);
+                           ConstructQueue::const_iterator item);
 
 static lower::pft::Evaluation *
 getCollapsedLoopEval(lower::pft::Evaluation &eval, int collapseValue) {
@@ -919,7 +919,7 @@ struct OpWithBodyGenInfo {
 /// \param [in] item  - item in the queue to generate body for.
 static void createBodyOfOp(mlir::Operation &op, const OpWithBodyGenInfo &info,
                            const ConstructQueue &queue,
-                           ConstructQueue::iterator item) {
+                           ConstructQueue::const_iterator item) {
   fir::FirOpBuilder &firOpBuilder = info.converter.getFirOpBuilder();
 
   auto insertMarker = [](fir::FirOpBuilder &builder) {
@@ -973,7 +973,8 @@ static void createBodyOfOp(mlir::Operation &op, const OpWithBodyGenInfo &info,
     }
   }
 
-  if (ConstructQueue::iterator next = std::next(item); next != queue.end()) {
+  if (ConstructQueue::const_iterator next = std::next(item);
+      next != queue.end()) {
     genOMPDispatch(info.converter, info.symTable, info.semaCtx, info.eval,
                    info.loc, queue, next);
   } else {
@@ -1071,7 +1072,7 @@ static void genBodyOfTargetDataOp(
     llvm::ArrayRef<mlir::Location> useDeviceLocs,
     llvm::ArrayRef<const semantics::Symbol *> useDeviceSymbols,
     const mlir::Location &currentLocation, const ConstructQueue &queue,
-    ConstructQueue::iterator item) {
+    ConstructQueue::const_iterator item) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
   mlir::Region &region = dataOp.getRegion();
 
@@ -1165,7 +1166,8 @@ static void genBodyOfTargetDataOp(
   // Set the insertion point after the marker.
   firOpBuilder.setInsertionPointAfter(undefMarker.getDefiningOp());
 
-  if (ConstructQueue::iterator next = std::next(item); next != queue.end()) {
+  if (ConstructQueue::const_iterator next = std::next(item);
+      next != queue.end()) {
     genOMPDispatch(converter, symTable, semaCtx, eval, currentLocation, queue,
                    next);
   } else {
@@ -1202,16 +1204,15 @@ static void genIntermediateCommonBlockAccessors(
 
 // This functions creates a block for the body of the targetOp's region. It adds
 // all the symbols present in mapSymbols as block arguments to this block.
-static void
-genBodyOfTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
-                  semantics::SemanticsContext &semaCtx,
-                  lower::pft::Evaluation &eval, mlir::omp::TargetOp &targetOp,
-                  llvm::ArrayRef<const semantics::Symbol *> mapSyms,
-                  llvm::ArrayRef<mlir::Location> mapSymLocs,
-                  llvm::ArrayRef<mlir::Type> mapSymTypes,
-                  DataSharingProcessor &dsp,
-                  const mlir::Location &currentLocation,
-                  const ConstructQueue &queue, ConstructQueue::iterator item) {
+static void genBodyOfTargetOp(
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
+    mlir::omp::TargetOp &targetOp,
+    llvm::ArrayRef<const semantics::Symbol *> mapSyms,
+    llvm::ArrayRef<mlir::Location> mapSymLocs,
+    llvm::ArrayRef<mlir::Type> mapSymTypes, DataSharingProcessor &dsp,
+    const mlir::Location &currentLocation, const ConstructQueue &queue,
+    ConstructQueue::const_iterator item) {
   assert(mapSymTypes.size() == mapSymLocs.size());
 
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
@@ -1391,7 +1392,8 @@ genBodyOfTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   genIntermediateCommonBlockAccessors(converter, currentLocation, region,
                                       mapSyms);
 
-  if (ConstructQueue::iterator next = std::next(item); next != queue.end()) {
+  if (ConstructQueue::const_iterator next = std::next(item);
+      next != queue.end()) {
     genOMPDispatch(converter, symTable, semaCtx, eval, currentLocation, queue,
                    next);
   } else {
@@ -1404,7 +1406,7 @@ genBodyOfTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 template <typename OpTy, typename... Args>
 static OpTy genOpWithBody(const OpWithBodyGenInfo &info,
                           const ConstructQueue &queue,
-                          ConstructQueue::iterator item, Args &&...args) {
+                          ConstructQueue::const_iterator item, Args &&...args) {
   auto op = info.converter.getFirOpBuilder().create<OpTy>(
       info.loc, std::forward<Args>(args)...);
   createBodyOfOp(*op, info, queue, item);
@@ -1469,8 +1471,9 @@ static void genFlushClauses(lower::AbstractConverter &converter,
   if (!objects.empty())
     genObjectList(objects, converter, operandRange);
 
-  if (!clauses.empty())
-    TODO(converter.getCurrentLocation(), "Handle OmpMemoryOrderClause");
+  ClauseProcessor cp(converter, semaCtx, clauses);
+  cp.processTODO<clause::AcqRel, clause::Acquire, clause::Release,
+                 clause::SeqCst>(loc, llvm::omp::OMPD_flush);
 }
 
 static void
@@ -1512,7 +1515,6 @@ static void genParallelClauses(
     llvm::SmallVectorImpl<const semantics::Symbol *> &reductionSyms) {
   ClauseProcessor cp(converter, semaCtx, clauses);
   cp.processAllocate(clauseOps);
-  cp.processDefault();
   cp.processIf(llvm::omp::Directive::OMPD_parallel, clauseOps);
 
   // Don't store num_threads clause operators into clauseOps because then they
@@ -1555,7 +1557,7 @@ static void genSimdClauses(lower::AbstractConverter &converter,
   cp.processSimdlen(clauseOps);
 
   // TODO Support delayed privatization.
-  cp.processTODO<clause::Allocate, clause::Linear, clause::Nontemporal>(
+  cp.processTODO<clause::Linear, clause::Nontemporal>(
       loc, llvm::omp::Directive::OMPD_simd);
 }
 
@@ -1652,7 +1654,6 @@ static void genTargetEnterExitUpdateDataClauses(
   cp.processDepend(clauseOps);
   cp.processDevice(stmtCtx, clauseOps);
   cp.processIf(directive, clauseOps);
-  cp.processNowait(clauseOps);
 
   if (directive == llvm::omp::Directive::OMPD_target_update) {
     cp.processMotionClauses<clause::To>(stmtCtx, clauseOps);
@@ -1660,6 +1661,8 @@ static void genTargetEnterExitUpdateDataClauses(
   } else {
     cp.processMap(loc, stmtCtx, clauseOps);
   }
+
+  cp.processNowait(clauseOps);
 }
 
 static void genTaskClauses(lower::AbstractConverter &converter,
@@ -1669,7 +1672,6 @@ static void genTaskClauses(lower::AbstractConverter &converter,
                            mlir::omp::TaskOperands &clauseOps) {
   ClauseProcessor cp(converter, semaCtx, clauses);
   cp.processAllocate(clauseOps);
-  cp.processDefault();
   cp.processDepend(clauseOps);
   cp.processFinal(stmtCtx, clauseOps);
   cp.processIf(llvm::omp::Directive::OMPD_task, clauseOps);
@@ -1711,7 +1713,6 @@ genTeamsClauses(lower::AbstractConverter &converter,
                 mlir::omp::ThreadLimitClauseOps &threadLimitClauseOps) {
   ClauseProcessor cp(converter, semaCtx, clauses);
   cp.processAllocate(clauseOps);
-  cp.processDefault();
   cp.processIf(llvm::omp::Directive::OMPD_teams, clauseOps);
   // TODO Support delayed privatization.
 
@@ -1758,7 +1759,7 @@ static mlir::omp::BarrierOp
 genBarrierOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
              semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
              mlir::Location loc, const ConstructQueue &queue,
-             ConstructQueue::iterator item) {
+             ConstructQueue::const_iterator item) {
   return converter.getFirOpBuilder().create<mlir::omp::BarrierOp>(loc);
 }
 
@@ -1766,7 +1767,7 @@ static mlir::omp::CriticalOp
 genCriticalOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               semantics::SemanticsContext &semaCtx,
               lower::pft::Evaluation &eval, mlir::Location loc,
-              const ConstructQueue &queue, ConstructQueue::iterator item,
+              const ConstructQueue &queue, ConstructQueue::const_iterator item,
               const std::optional<parser::Name> &name) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
   mlir::FlatSymbolRefAttr nameAttr;
@@ -1797,7 +1798,7 @@ static mlir::omp::FlushOp
 genFlushOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
            semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
            mlir::Location loc, const ObjectList &objects,
-           const ConstructQueue &queue, ConstructQueue::iterator item) {
+           const ConstructQueue &queue, ConstructQueue::const_iterator item) {
   llvm::SmallVector<mlir::Value> operandRange;
   genFlushClauses(converter, semaCtx, objects, item->clauses, loc,
                   operandRange);
@@ -1810,7 +1811,7 @@ static mlir::omp::LoopNestOp
 genLoopNestOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               semantics::SemanticsContext &semaCtx,
               lower::pft::Evaluation &eval, mlir::Location loc,
-              const ConstructQueue &queue, ConstructQueue::iterator item,
+              const ConstructQueue &queue, ConstructQueue::const_iterator item,
               mlir::omp::LoopNestOperands &clauseOps,
               llvm::ArrayRef<const semantics::Symbol *> iv,
               llvm::ArrayRef<const semantics::Symbol *> wrapperSyms,
@@ -1863,7 +1864,7 @@ static mlir::omp::MaskedOp
 genMaskedOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
             mlir::Location loc, const ConstructQueue &queue,
-            ConstructQueue::iterator item) {
+            ConstructQueue::const_iterator item) {
   lower::StatementContext stmtCtx;
   mlir::omp::MaskedOperands clauseOps;
   genMaskedClauses(converter, semaCtx, stmtCtx, item->clauses, loc, clauseOps);
@@ -1878,7 +1879,7 @@ static mlir::omp::MasterOp
 genMasterOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
             mlir::Location loc, const ConstructQueue &queue,
-            ConstructQueue::iterator item) {
+            ConstructQueue::const_iterator item) {
   return genOpWithBody<mlir::omp::MasterOp>(
       OpWithBodyGenInfo(converter, symTable, semaCtx, loc, eval,
                         llvm::omp::Directive::OMPD_master),
@@ -1889,7 +1890,7 @@ static mlir::omp::OrderedOp
 genOrderedOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
              semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
              mlir::Location loc, const ConstructQueue &queue,
-             ConstructQueue::iterator item) {
+             ConstructQueue::const_iterator item) {
   TODO(loc, "OMPD_ordered");
   return nullptr;
 }
@@ -1898,7 +1899,8 @@ static mlir::omp::OrderedRegionOp
 genOrderedRegionOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
                    semantics::SemanticsContext &semaCtx,
                    lower::pft::Evaluation &eval, mlir::Location loc,
-                   const ConstructQueue &queue, ConstructQueue::iterator item) {
+                   const ConstructQueue &queue,
+                   ConstructQueue::const_iterator item) {
   mlir::omp::OrderedRegionOperands clauseOps;
   genOrderedRegionClauses(converter, semaCtx, item->clauses, loc, clauseOps);
 
@@ -1912,7 +1914,7 @@ static mlir::omp::ParallelOp
 genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               semantics::SemanticsContext &semaCtx,
               lower::pft::Evaluation &eval, mlir::Location loc,
-              const ConstructQueue &queue, ConstructQueue::iterator item,
+              const ConstructQueue &queue, ConstructQueue::const_iterator item,
               mlir::omp::ParallelOperands &clauseOps,
               mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
               llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
@@ -2037,6 +2039,7 @@ static mlir::omp::ParallelOp genParallelCompositeOp(
 
   // Create omp.parallel operation.
   auto parallelOp = firOpBuilder.create<mlir::omp::ParallelOp>(loc, clauseOps);
+  parallelOp.setComposite(/*val=*/true);
 
   if (numThreadsClauseOps.numThreads) {
     if (parentTarget)
@@ -2114,7 +2117,7 @@ static mlir::omp::SectionsOp
 genSectionsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               semantics::SemanticsContext &semaCtx,
               lower::pft::Evaluation &eval, mlir::Location loc,
-              const ConstructQueue &queue, ConstructQueue::iterator item,
+              const ConstructQueue &queue, ConstructQueue::const_iterator item,
               const parser::OmpSectionBlocks &sectionBlocks) {
   llvm::SmallVector<mlir::Type> reductionTypes;
   llvm::SmallVector<const semantics::Symbol *> reductionSyms;
@@ -2232,7 +2235,7 @@ static mlir::omp::SingleOp
 genSingleOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
             mlir::Location loc, const ConstructQueue &queue,
-            ConstructQueue::iterator item) {
+            ConstructQueue::const_iterator item) {
   mlir::omp::SingleOperands clauseOps;
   genSingleClauses(converter, semaCtx, item->clauses, loc, clauseOps);
 
@@ -2247,7 +2250,7 @@ static mlir::omp::TargetOp
 genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
             semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
             mlir::Location loc, const ConstructQueue &queue,
-            ConstructQueue::iterator item) {
+            ConstructQueue::const_iterator item) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
   lower::StatementContext stmtCtx;
 
@@ -2292,7 +2295,7 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     // map for it.
     if (const Fortran::semantics::Symbol *common =
             Fortran::semantics::FindCommonBlockContaining(sym.GetUltimate()))
-      if (llvm::find(mapSyms, common) != mapSyms.end())
+      if (llvm::is_contained(mapSyms, common))
         return;
 
     // If we come across a symbol without a symbol address, we return as we
@@ -2302,7 +2305,7 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     if (!converter.getSymbolAddress(sym))
       return;
 
-    if (llvm::find(mapSyms, &sym) != mapSyms.end())
+    if (llvm::is_contained(mapSyms, &sym))
       return;
 
     if (const auto *details =
@@ -2387,7 +2390,8 @@ static mlir::omp::TargetDataOp
 genTargetDataOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
                 semantics::SemanticsContext &semaCtx,
                 lower::pft::Evaluation &eval, mlir::Location loc,
-                const ConstructQueue &queue, ConstructQueue::iterator item) {
+                const ConstructQueue &queue,
+                ConstructQueue::const_iterator item) {
   lower::StatementContext stmtCtx;
   mlir::omp::TargetDataOperands clauseOps;
   llvm::SmallVector<mlir::Type> useDeviceTypes;
@@ -2406,12 +2410,10 @@ genTargetDataOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 }
 
 template <typename OpTy>
-static OpTy genTargetEnterExitUpdateDataOp(lower::AbstractConverter &converter,
-                                           lower::SymMap &symTable,
-                                           semantics::SemanticsContext &semaCtx,
-                                           mlir::Location loc,
-                                           const ConstructQueue &queue,
-                                           ConstructQueue::iterator item) {
+static OpTy genTargetEnterExitUpdateDataOp(
+    lower::AbstractConverter &converter, lower::SymMap &symTable,
+    semantics::SemanticsContext &semaCtx, mlir::Location loc,
+    const ConstructQueue &queue, ConstructQueue::const_iterator item) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
   lower::StatementContext stmtCtx;
 
@@ -2438,7 +2440,7 @@ static mlir::omp::TaskOp
 genTaskOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
           semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
           mlir::Location loc, const ConstructQueue &queue,
-          ConstructQueue::iterator item) {
+          ConstructQueue::const_iterator item) {
   lower::StatementContext stmtCtx;
   mlir::omp::TaskOperands clauseOps;
   genTaskClauses(converter, semaCtx, stmtCtx, item->clauses, loc, clauseOps);
@@ -2454,7 +2456,8 @@ static mlir::omp::TaskgroupOp
 genTaskgroupOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
                semantics::SemanticsContext &semaCtx,
                lower::pft::Evaluation &eval, mlir::Location loc,
-               const ConstructQueue &queue, ConstructQueue::iterator item) {
+               const ConstructQueue &queue,
+               ConstructQueue::const_iterator item) {
   mlir::omp::TaskgroupOperands clauseOps;
   genTaskgroupClauses(converter, semaCtx, item->clauses, loc, clauseOps);
 
@@ -2469,7 +2472,8 @@ static mlir::omp::TaskwaitOp
 genTaskwaitOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               semantics::SemanticsContext &semaCtx,
               lower::pft::Evaluation &eval, mlir::Location loc,
-              const ConstructQueue &queue, ConstructQueue::iterator item) {
+              const ConstructQueue &queue,
+              ConstructQueue::const_iterator item) {
   mlir::omp::TaskwaitOperands clauseOps;
   genTaskwaitClauses(converter, semaCtx, item->clauses, loc, clauseOps);
   return converter.getFirOpBuilder().create<mlir::omp::TaskwaitOp>(loc,
@@ -2480,7 +2484,8 @@ static mlir::omp::TaskyieldOp
 genTaskyieldOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
                semantics::SemanticsContext &semaCtx,
                lower::pft::Evaluation &eval, mlir::Location loc,
-               const ConstructQueue &queue, ConstructQueue::iterator item) {
+               const ConstructQueue &queue,
+               ConstructQueue::const_iterator item) {
   return converter.getFirOpBuilder().create<mlir::omp::TaskyieldOp>(loc);
 }
 
@@ -2488,7 +2493,7 @@ static mlir::omp::TeamsOp
 genTeamsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
            semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
            mlir::Location loc, const ConstructQueue &queue,
-           ConstructQueue::iterator item) {
+           ConstructQueue::const_iterator item) {
   lower::StatementContext stmtCtx;
 
   mlir::omp::TargetOp targetOp =
@@ -2536,7 +2541,7 @@ static void genStandaloneDistribute(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
   mlir::omp::DistributeOperands distributeClauseOps;
@@ -2563,7 +2568,7 @@ static void genStandaloneDo(lower::AbstractConverter &converter,
                             semantics::SemanticsContext &semaCtx,
                             lower::pft::Evaluation &eval, mlir::Location loc,
                             const ConstructQueue &queue,
-                            ConstructQueue::iterator item,
+                            ConstructQueue::const_iterator item,
                             DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
@@ -2594,7 +2599,7 @@ static void genStandaloneParallel(lower::AbstractConverter &converter,
                                   lower::pft::Evaluation &eval,
                                   mlir::Location loc,
                                   const ConstructQueue &queue,
-                                  ConstructQueue::iterator item) {
+                                  ConstructQueue::const_iterator item) {
   lower::StatementContext stmtCtx;
 
   mlir::omp::TargetOp targetOp =
@@ -2619,7 +2624,7 @@ static void genStandaloneSimd(lower::AbstractConverter &converter,
                               semantics::SemanticsContext &semaCtx,
                               lower::pft::Evaluation &eval, mlir::Location loc,
                               const ConstructQueue &queue,
-                              ConstructQueue::iterator item,
+                              ConstructQueue::const_iterator item,
                               DataSharingProcessor &dsp) {
   mlir::omp::SimdOperands simdClauseOps;
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps);
@@ -2643,7 +2648,7 @@ static void genStandaloneTaskloop(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   TODO(loc, "Taskloop construct");
 }
 
@@ -2655,7 +2660,7 @@ static void genCompositeDistributeParallelDo(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
   mlir::omp::TargetOp targetOp =
@@ -2696,10 +2701,12 @@ static void genCompositeDistributeParallelDo(
   // TODO: Populate entry block arguments with private variables.
   auto distributeOp = genWrapperOp<mlir::omp::DistributeOp>(
       converter, loc, distributeClauseOps, /*blockArgTypes=*/{});
+  distributeOp.setComposite(/*val=*/true);
 
   // TODO: Add private variables to entry block arguments.
   auto wsloopOp = genWrapperOp<mlir::omp::WsloopOp>(
       converter, loc, wsloopClauseOps, wsloopReductionTypes);
+  wsloopOp.setComposite(/*val=*/true);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
@@ -2719,7 +2726,7 @@ static void genCompositeDistributeParallelDoSimd(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
   mlir::omp::TargetOp targetOp =
@@ -2763,14 +2770,17 @@ static void genCompositeDistributeParallelDoSimd(
   // TODO: Populate entry block arguments with private variables.
   auto distributeOp = genWrapperOp<mlir::omp::DistributeOp>(
       converter, loc, distributeClauseOps, /*blockArgTypes=*/{});
+  distributeOp.setComposite(/*val=*/true);
 
   // TODO: Add private variables to entry block arguments.
   auto wsloopOp = genWrapperOp<mlir::omp::WsloopOp>(
       converter, loc, wsloopClauseOps, wsloopReductionTypes);
+  wsloopOp.setComposite(/*val=*/true);
 
   // TODO: Populate entry block arguments with reduction and private variables.
   auto simdOp = genWrapperOp<mlir::omp::SimdOp>(converter, loc, simdClauseOps,
                                                 /*blockArgTypes=*/{});
+  simdOp.setComposite(/*val=*/true);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
@@ -2790,7 +2800,7 @@ static void genCompositeDistributeSimd(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
   // Clause processing.
@@ -2810,10 +2820,12 @@ static void genCompositeDistributeSimd(
   // TODO: Populate entry block arguments with private variables.
   auto distributeOp = genWrapperOp<mlir::omp::DistributeOp>(
       converter, loc, distributeClauseOps, /*blockArgTypes=*/{});
+  distributeOp.setComposite(/*val=*/true);
 
   // TODO: Populate entry block arguments with reduction and private variables.
   auto simdOp = genWrapperOp<mlir::omp::SimdOp>(converter, loc, simdClauseOps,
                                                 /*blockArgTypes=*/{});
+  simdOp.setComposite(/*val=*/true);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol order and the block argument order match, so that the
@@ -2833,7 +2845,7 @@ static void genCompositeDoSimd(lower::AbstractConverter &converter,
                                semantics::SemanticsContext &semaCtx,
                                lower::pft::Evaluation &eval, mlir::Location loc,
                                const ConstructQueue &queue,
-                               ConstructQueue::iterator item,
+                               ConstructQueue::const_iterator item,
                                DataSharingProcessor &dsp) {
   lower::StatementContext stmtCtx;
 
@@ -2856,10 +2868,12 @@ static void genCompositeDoSimd(lower::AbstractConverter &converter,
   // TODO: Add private variables to entry block arguments.
   auto wsloopOp = genWrapperOp<mlir::omp::WsloopOp>(
       converter, loc, wsloopClauseOps, wsloopReductionTypes);
+  wsloopOp.setComposite(/*val=*/true);
 
   // TODO: Populate entry block arguments with reduction and private variables.
   auto simdOp = genWrapperOp<mlir::omp::SimdOp>(converter, loc, simdClauseOps,
                                                 /*blockArgTypes=*/{});
+  simdOp.setComposite(/*val=*/true);
 
   // Construct wrapper entry block list and associated symbols. It is important
   // that the symbol and block argument order match, so that the symbol-value
@@ -2868,8 +2882,6 @@ static void genCompositeDoSimd(lower::AbstractConverter &converter,
   auto wrapperArgs = llvm::to_vector(llvm::concat<mlir::BlockArgument>(
       wsloopOp.getRegion().getArguments(), simdOp.getRegion().getArguments()));
 
-  assert(wsloopReductionSyms.size() == wrapperArgs.size() &&
-         "Number of symbols and wrapper block arguments must match");
   genLoopNestOp(converter, symTable, semaCtx, eval, loc, queue, item,
                 loopNestClauseOps, iv, wsloopReductionSyms, wrapperArgs,
                 llvm::omp::Directive::OMPD_do_simd, dsp);
@@ -2879,7 +2891,7 @@ static void genCompositeTaskloopSimd(
     lower::AbstractConverter &converter, lower::SymMap &symTable,
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
-    ConstructQueue::iterator item, DataSharingProcessor &dsp) {
+    ConstructQueue::const_iterator item, DataSharingProcessor &dsp) {
   TODO(loc, "Composite TASKLOOP SIMD");
 }
 
@@ -2892,7 +2904,7 @@ static void genOMPDispatch(lower::AbstractConverter &converter,
                            semantics::SemanticsContext &semaCtx,
                            lower::pft::Evaluation &eval, mlir::Location loc,
                            const ConstructQueue &queue,
-                           ConstructQueue::iterator item) {
+                           ConstructQueue::const_iterator item) {
   assert(item != queue.end());
 
   std::optional<DataSharingProcessor> loopDsp;

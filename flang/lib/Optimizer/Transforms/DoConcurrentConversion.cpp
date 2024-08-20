@@ -604,16 +604,19 @@ public:
 
     mlir::omp::ParallelOp parallelOp = genParallelOp(
         doLoop.getLoc(), rewriter, loopNest, mapper, loopNestClauseOps);
+    // Only set as composite when part of `distribute parallel do`.
+    parallelOp.setComposite(mapToDevice);
 
     for (mlir::Value local : locals)
       looputils::localizeLoopLocalValue(local, parallelOp.getRegion(),
                                         rewriter);
 
     if (mapToDevice)
-      genDistributeOp(doLoop.getLoc(), rewriter);
+      genDistributeOp(doLoop.getLoc(), rewriter).setComposite(/*val=*/true);
 
     mlir::omp::LoopNestOp ompLoopNest =
-        genWsLoopOp(rewriter, loopNest.back().first, mapper, loopNestClauseOps);
+        genWsLoopOp(rewriter, loopNest.back().first, mapper, loopNestClauseOps,
+                    /*isComposite=*/mapToDevice);
 
     // Now that we created the nested `ws.loop` op, we set can the `target` op's
     // trip count.
@@ -911,9 +914,11 @@ private:
   mlir::omp::LoopNestOp
   genWsLoopOp(mlir::ConversionPatternRewriter &rewriter, fir::DoLoopOp doLoop,
               mlir::IRMapping &mapper,
-              const mlir::omp::LoopNestOperands &clauseOps) const {
+              const mlir::omp::LoopNestOperands &clauseOps,
+              bool isComposite) const {
 
     auto wsloopOp = rewriter.create<mlir::omp::WsloopOp>(doLoop.getLoc());
+    wsloopOp.setComposite(isComposite);
     rewriter.createBlock(&wsloopOp.getRegion());
     rewriter.setInsertionPoint(
         rewriter.create<mlir::omp::TerminatorOp>(wsloopOp.getLoc()));

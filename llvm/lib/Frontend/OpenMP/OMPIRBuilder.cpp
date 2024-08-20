@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -509,13 +510,24 @@ void OpenMPIRBuilder::getKernelArgsVector(TargetKernelArgs &KernelArgs,
   Value *Version = Builder.getInt32(OMP_KERNEL_ARG_VERSION);
   Value *PointerNum = Builder.getInt32(KernelArgs.NumTargetItems);
   auto Int32Ty = Type::getInt32Ty(Builder.getContext());
-  Value *ZeroArray = Constant::getNullValue(ArrayType::get(Int32Ty, 3));
+  constexpr const size_t MaxDim = 3;
+  Value *ZeroArray = Constant::getNullValue(ArrayType::get(Int32Ty, MaxDim));
   Value *Flags = Builder.getInt64(KernelArgs.HasNoWait);
 
+  assert(!KernelArgs.NumTeams.empty() && !KernelArgs.NumThreads.empty());
+
   Value *NumTeams3D =
-      Builder.CreateInsertValue(ZeroArray, KernelArgs.NumTeams, {0});
+      Builder.CreateInsertValue(ZeroArray, KernelArgs.NumTeams[0], {0});
   Value *NumThreads3D =
-      Builder.CreateInsertValue(ZeroArray, KernelArgs.NumThreads, {0});
+      Builder.CreateInsertValue(ZeroArray, KernelArgs.NumThreads[0], {0});
+  for (unsigned I :
+       seq<unsigned>(1, std::min(KernelArgs.NumTeams.size(), MaxDim)))
+    NumTeams3D =
+        Builder.CreateInsertValue(NumTeams3D, KernelArgs.NumTeams[I], {I});
+  for (unsigned I :
+       seq<unsigned>(1, std::min(KernelArgs.NumThreads.size(), MaxDim)))
+    NumThreads3D =
+        Builder.CreateInsertValue(NumThreads3D, KernelArgs.NumThreads[I], {I});
 
   ArgsVector = {Version,
                 PointerNum,
@@ -1122,9 +1134,9 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::emitKernelLaunch(
   // __tgt_target_teams() launches a GPU kernel with the requested number
   // of teams and threads so no additional calls to the runtime are required.
   // Check the error code and execute the host version if required.
-  Builder.restoreIP(emitTargetKernel(Builder, AllocaIP, Return, RTLoc, DeviceID,
-                                     Args.NumTeams, Args.NumThreads,
-                                     OutlinedFnID, ArgsVector));
+  Builder.restoreIP(emitTargetKernel(
+      Builder, AllocaIP, Return, RTLoc, DeviceID, Args.NumTeams.front(),
+      Args.NumThreads.front(), OutlinedFnID, ArgsVector));
 
   BasicBlock *OffloadFailedBlock =
       BasicBlock::Create(Builder.getContext(), "omp_offload.failed");
@@ -2031,8 +2043,8 @@ OpenMPIRBuilder::createTask(const LocationDescription &Loc,
           Shareds, [Shareds](Use &U) { return U.getUser() != Shareds; });
     }
 
-    llvm::for_each(llvm::reverse(ToBeDeleted),
-                   [](Instruction *I) { I->eraseFromParent(); });
+    for (Instruction *I : llvm::reverse(ToBeDeleted))
+      I->eraseFromParent();
   };
 
   addOutlineInfo(std::move(OI));
@@ -5985,7 +5997,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropInit(
   Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
   Value *ThreadId = getOrCreateThreadID(Ident);
   if (Device == nullptr)
-    Device = ConstantInt::get(Int32, -1);
+    Device = Constant::getAllOnesValue(Int32);
   Constant *InteropTypeVal = ConstantInt::get(Int32, (int)InteropType);
   if (NumDependences == nullptr) {
     NumDependences = ConstantInt::get(Int32, 0);
@@ -6013,7 +6025,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropDestroy(
   Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
   Value *ThreadId = getOrCreateThreadID(Ident);
   if (Device == nullptr)
-    Device = ConstantInt::get(Int32, -1);
+    Device = Constant::getAllOnesValue(Int32);
   if (NumDependences == nullptr) {
     NumDependences = ConstantInt::get(Int32, 0);
     PointerType *PointerTypeVar = PointerType::getUnqual(M.getContext());
@@ -6041,7 +6053,7 @@ CallInst *OpenMPIRBuilder::createOMPInteropUse(const LocationDescription &Loc,
   Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
   Value *ThreadId = getOrCreateThreadID(Ident);
   if (Device == nullptr)
-    Device = ConstantInt::get(Int32, -1);
+    Device = Constant::getAllOnesValue(Int32);
   if (NumDependences == nullptr) {
     NumDependences = ConstantInt::get(Int32, 0);
     PointerType *PointerTypeVar = PointerType::getUnqual(M.getContext());
@@ -6080,6 +6092,8 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
     const LocationDescription &Loc, bool IsSPMD,
     const llvm::OpenMPIRBuilder::TargetKernelDefaultBounds &Bounds) {
+  assert(!Bounds.MaxThreads.empty() && !Bounds.MaxTeams.empty() &&
+         "expected num_threads and num_teams to be specified");
   if (!updateToLocation(Loc))
     return Loc.IP;
 
@@ -6109,12 +6123,12 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
 
   // Manifest the launch configuration in the metadata matching the kernel
   // environment.
-  if (Bounds.MinTeams > 1 || Bounds.MaxTeams > 0)
-    writeTeamsForKernel(T, *Kernel, Bounds.MinTeams, Bounds.MaxTeams);
+  if (Bounds.MinTeams > 1 || Bounds.MaxTeams.front() > 0)
+    writeTeamsForKernel(T, *Kernel, Bounds.MinTeams, Bounds.MaxTeams.front());
 
   // If MaxThreads not set, select the maximum between the default workgroup
   // size and the MinThreads value.
-  int32_t MaxThreadsValue = Bounds.MaxThreads;
+  int32_t MaxThreadsValue = Bounds.MaxThreads.front();
   if (MaxThreadsValue < 0)
     MaxThreadsValue = std::max(
         int32_t(getGridValue(T, Kernel).GV_Default_WG_Size), Bounds.MinThreads);
@@ -6125,7 +6139,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
   Constant *MinThreads = ConstantInt::getSigned(Int32, Bounds.MinThreads);
   Constant *MaxThreads = ConstantInt::getSigned(Int32, MaxThreadsValue);
   Constant *MinTeams = ConstantInt::getSigned(Int32, Bounds.MinTeams);
-  Constant *MaxTeams = ConstantInt::getSigned(Int32, Bounds.MaxTeams);
+  Constant *MaxTeams = ConstantInt::getSigned(Int32, Bounds.MaxTeams.front());
   Constant *ReductionDataSize =
       ConstantInt::getSigned(Int32, Bounds.ReductionDataSize);
   Constant *ReductionBufferLength =
@@ -6188,7 +6202,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
       Builder.CreateCall(Fn, {KernelEnvironment, KernelLaunchEnvironment});
 
   Value *ExecUserCode = Builder.CreateICmpEQ(
-      ThreadKind, ConstantInt::get(ThreadKind->getType(), -1),
+      ThreadKind, Constant::getAllOnesValue(ThreadKind->getType()),
       "exec_user_code");
 
   // ThreadKind = __kmpc_target_init(...)
@@ -7215,8 +7229,8 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::emitTargetTask(
     }
 
     StaleCI->eraseFromParent();
-    llvm::for_each(llvm::reverse(ToBeDeleted),
-                   [](Instruction *I) { I->eraseFromParent(); });
+    for (Instruction *I : llvm::reverse(ToBeDeleted))
+      I->eraseFromParent();
   };
   addOutlineInfo(std::move(OI));
 
@@ -7290,23 +7304,12 @@ static void emitTargetCall(
                                          /*IsNonContiguous=*/true,
                                          /*ForEndCall=*/false);
 
-  unsigned NumTargetItems = Info.NumberOfPtrs;
-  // TODO: Use correct device ID
-  Value *DeviceID = Builder.getInt64(OMP_DEVICEID_UNDEF);
-  uint32_t SrcLocStrSize;
-  Constant *SrcLocStr = OMPBuilder.getOrCreateDefaultSrcLocStr(SrcLocStrSize);
-  Value *RTLoc = OMPBuilder.getOrCreateIdent(SrcLocStr, SrcLocStrSize,
-                                             llvm::omp::IdentFlag(0), 0);
-
-  Value *TripCount = RuntimeBounds.LoopTripCount
-                         ? Builder.CreateIntCast(RuntimeBounds.LoopTripCount,
-                                                 Builder.getInt64Ty(),
-                                                 /*isSigned=*/false)
-                         : Builder.getInt64(0);
-
-  Value *NumTeams = RuntimeBounds.MaxTeams
-                        ? RuntimeBounds.MaxTeams
-                        : Builder.getInt32(DefaultBounds.MaxTeams);
+  SmallVector<Value *, 3> NumTeamsC;
+  for (auto [DefNumTeams, RtNumTeams] :
+       llvm::zip_equal(DefaultBounds.MaxTeams, RuntimeBounds.MaxTeams)) {
+    NumTeamsC.push_back(RtNumTeams ? RtNumTeams
+                                   : Builder.getInt32(DefNumTeams));
+  }
 
   // Calculate number of threads: 0 if no clauses specified, otherwise it is the
   // minimum between optional THREAD_LIMIT and MAX_THREADS clauses. Perform a
@@ -7326,20 +7329,39 @@ static void emitTargetCall(
                    : Clause;
   };
 
+  // TODO: Check if this is the correct handling for multi-dim thread_limit.
+  SmallVector<Value *, 3> NumThreadsC;
   Value *MaxThreadsClause = InitMaxThreadsClause(RuntimeBounds.MaxThreads);
-  Value *TeamsThreadLimitClause =
-      InitMaxThreadsClause(RuntimeBounds.TeamsThreadLimit);
-  Value *NumThreads = InitMaxThreadsClause(RuntimeBounds.TargetThreadLimit);
-  CombineMaxThreadsClauses(TeamsThreadLimitClause, NumThreads);
-  CombineMaxThreadsClauses(MaxThreadsClause, NumThreads);
 
-  if (!NumThreads)
-    NumThreads = Builder.getInt32(0);
+  for (auto [RtTeamsThreadLimit, RtTargetThreadLimit] : llvm::zip_equal(
+           RuntimeBounds.TeamsThreadLimit, RuntimeBounds.TargetThreadLimit)) {
+    Value *TeamsThreadLimitClause = InitMaxThreadsClause(RtTeamsThreadLimit);
+    Value *NumThreads = InitMaxThreadsClause(RtTargetThreadLimit);
+
+    CombineMaxThreadsClauses(TeamsThreadLimitClause, NumThreads);
+    CombineMaxThreadsClauses(MaxThreadsClause, NumThreads);
+
+    NumThreadsC.push_back(NumThreads ? NumThreads : Builder.getInt32(0));
+  }
+
+  unsigned NumTargetItems = Info.NumberOfPtrs;
+  // TODO: Use correct device ID
+  Value *DeviceID = Builder.getInt64(OMP_DEVICEID_UNDEF);
+  uint32_t SrcLocStrSize;
+  Constant *SrcLocStr = OMPBuilder.getOrCreateDefaultSrcLocStr(SrcLocStrSize);
+  Value *RTLoc = OMPBuilder.getOrCreateIdent(SrcLocStr, SrcLocStrSize,
+                                             llvm::omp::IdentFlag(0), 0);
+
+  Value *TripCount = RuntimeBounds.LoopTripCount
+                         ? Builder.CreateIntCast(RuntimeBounds.LoopTripCount,
+                                                 Builder.getInt64Ty(),
+                                                 /*isSigned=*/false)
+                         : Builder.getInt64(0);
 
   // TODO: Use correct DynCGGroupMem
   Value *DynCGGroupMem = Builder.getInt32(0);
   OpenMPIRBuilder::TargetKernelArgs KArgs(NumTargetItems, RTArgs, TripCount,
-                                          NumTeams, NumThreads, DynCGGroupMem,
+                                          NumTeamsC, NumThreadsC, DynCGGroupMem,
                                           HasNoWait);
 
   // The presence of certain clauses on the target directive require the
@@ -7421,7 +7443,7 @@ OpenMPIRBuilder::getOrCreateInternalVariable(Type *Ty, const StringRef &Name,
     // create different versions of the function for different OMP internal
     // variables.
     auto Linkage = this->M.getTargetTriple().rfind("wasm32") == 0
-                       ? GlobalValue::ExternalLinkage
+                       ? GlobalValue::InternalLinkage
                        : GlobalValue::CommonLinkage;
     auto *GV = new GlobalVariable(M, Ty, /*IsConstant=*/false, Linkage,
                                   Constant::getNullValue(Ty), Elem.first(),
@@ -8583,8 +8605,8 @@ OpenMPIRBuilder::createTeams(const LocationDescription &Loc,
                            omp::RuntimeFunction::OMPRTL___kmpc_fork_teams),
                        Args);
 
-    llvm::for_each(llvm::reverse(ToBeDeleted),
-                   [](Instruction *I) { I->eraseFromParent(); });
+    for (Instruction *I : llvm::reverse(ToBeDeleted))
+      I->eraseFromParent();
   };
 
   if (!Config.isTargetDevice())

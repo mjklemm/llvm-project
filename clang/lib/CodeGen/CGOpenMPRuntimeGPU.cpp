@@ -747,8 +747,9 @@ void CGOpenMPRuntimeGPU::emitKernelInit(const OMPExecutableDirective &D,
                                         EntryFunctionState &EST, bool IsSPMD) {
   // Get NumTeams and ThreadLimit attributes.
   llvm::OpenMPIRBuilder::TargetKernelDefaultBounds Bounds;
-  computeMinAndMaxThreadsAndTeams(D, CGF, Bounds.MinThreads, Bounds.MaxThreads,
-                                  Bounds.MinTeams, Bounds.MaxTeams);
+  computeMinAndMaxThreadsAndTeams(
+      D, CGF, Bounds.MinThreads, Bounds.MaxThreads.emplace_back(-1),
+      Bounds.MinTeams, Bounds.MaxTeams.emplace_back(-1));
 
   CGBuilderTy &Bld = CGF.Builder;
   Bld.restoreIP(OMPBuilder.createTargetInit(Bld, IsSPMD, Bounds));
