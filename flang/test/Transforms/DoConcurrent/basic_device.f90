@@ -21,7 +21,7 @@ program do_concurrent_basic
 
     ! CHECK-NOT: fir.do_loop
 
-    ! CHECK-DAG: %[[I_MAP_INFO:.*]] = omp.map.info var_ptr(%[[I_ORIG_DECL]]#0
+    ! CHECK-DAG: %[[I_MAP_INFO:.*]] = omp.map.info var_ptr(%[[I_ORIG_DECL]]#1
     ! CHECK: %[[C0:.*]] = arith.constant 0 : index
     ! CHECK: %[[UPPER_BOUND:.*]] = arith.subi %[[A_EXTENT]], %[[C0]] : index
 
@@ -29,7 +29,7 @@ program do_concurrent_basic
     ! CHECK-SAME: upper_bound(%[[UPPER_BOUND]] : index)
     ! CHECK-SAME: extent(%[[A_EXTENT]] : index)
 
-    ! CHECK-DAG: %[[A_MAP_INFO:.*]] = omp.map.info var_ptr(%[[A_ORIG_DECL]]#0 : {{[^(]+}})
+    ! CHECK-DAG: %[[A_MAP_INFO:.*]] = omp.map.info var_ptr(%[[A_ORIG_DECL]]#1 : {{[^(]+}})
     ! CHECK-SAME: map_clauses(implicit, tofrom) capture(ByRef) bounds(%[[A_BOUNDS]])
 
     ! CHECK: %[[TRIP_COUNT:.*]] = arith.muli %{{.*}}, %{{.*}} : i64

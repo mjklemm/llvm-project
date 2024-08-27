@@ -1320,9 +1320,11 @@ static void genBodyOfTargetOp(
   while (!valuesDefinedAbove.empty()) {
     for (mlir::Value val : valuesDefinedAbove) {
       mlir::Operation *valOp = val.getDefiningOp();
+      assert(valOp != nullptr);
       if (mlir::isMemoryEffectFree(valOp)) {
         mlir::Operation *clonedOp = valOp->clone();
         regionBlock->push_front(clonedOp);
+        assert(clonedOp->getNumResults() == 1);
         val.replaceUsesWithIf(
             clonedOp->getResult(0), [regionBlock](mlir::OpOperand &use) {
               return use.getOwner()->getBlock() == regionBlock;

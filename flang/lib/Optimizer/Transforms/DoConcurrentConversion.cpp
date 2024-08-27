@@ -147,6 +147,68 @@ mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
 
   return tripCount;
 }
+
+/// Check if cloning the bounds introduced any dependency on the outer region.
+/// If so, then either clone them as well if they are MemoryEffectFree, or else
+/// copy them to a new temporary and add them to the map and block_argument
+/// lists and replace their uses with the new temporary.
+///
+/// TODO: similar to the above functions, this is copied from OpenMP lowering
+/// (in this case, from `genBodyOfTargetOp`). Once we move to a common lib for
+/// these utils this will move as well.
+void cloneOrMapRegionOutsiders(fir::FirOpBuilder &builder,
+                               mlir::omp::TargetOp targetOp) {
+  mlir::Region &targetRegion = targetOp.getRegion();
+  mlir::Block *targetEntryBlock = &targetRegion.getBlocks().front();
+  llvm::SetVector<mlir::Value> valuesDefinedAbove;
+  mlir::getUsedValuesDefinedAbove(targetRegion, valuesDefinedAbove);
+
+  while (!valuesDefinedAbove.empty()) {
+    for (mlir::Value val : valuesDefinedAbove) {
+      mlir::Operation *valOp = val.getDefiningOp();
+      assert(valOp != nullptr);
+      if (mlir::isMemoryEffectFree(valOp)) {
+        mlir::Operation *clonedOp = valOp->clone();
+        targetEntryBlock->push_front(clonedOp);
+        assert(clonedOp->getNumResults() == 1);
+        val.replaceUsesWithIf(
+            clonedOp->getResult(0), [targetEntryBlock](mlir::OpOperand &use) {
+              return use.getOwner()->getBlock() == targetEntryBlock;
+            });
+      } else {
+        mlir::OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPointAfter(valOp);
+        auto copyVal = builder.createTemporary(val.getLoc(), val.getType());
+        builder.createStoreWithConvert(copyVal.getLoc(), val, copyVal);
+
+        llvm::SmallVector<mlir::Value> bounds;
+        std::stringstream name;
+        builder.setInsertionPoint(targetOp);
+        mlir::Value mapOp = createMapInfoOp(
+            builder, copyVal.getLoc(), copyVal,
+            /*varPtrPtr=*/mlir::Value{}, name.str(), bounds,
+            /*members=*/llvm::SmallVector<mlir::Value>{},
+            /*membersIndex=*/mlir::DenseIntElementsAttr{},
+            static_cast<
+                std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
+                llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_IMPLICIT),
+            mlir::omp::VariableCaptureKind::ByCopy, copyVal.getType());
+        targetOp.getMapVarsMutable().append(mapOp);
+        mlir::Value clonedValArg =
+            targetRegion.addArgument(copyVal.getType(), copyVal.getLoc());
+        builder.setInsertionPointToStart(targetEntryBlock);
+        auto loadOp =
+            builder.create<fir::LoadOp>(clonedValArg.getLoc(), clonedValArg);
+        val.replaceUsesWithIf(
+            loadOp->getResult(0), [targetEntryBlock](mlir::OpOperand &use) {
+              return use.getOwner()->getBlock() == targetEntryBlock;
+            });
+      }
+    }
+    valuesDefinedAbove.clear();
+    mlir::getUsedValuesDefinedAbove(targetRegion, valuesDefinedAbove);
+  }
+}
 } // namespace internal
 } // namespace omp
 } // namespace lower
@@ -720,14 +782,19 @@ private:
     llvm::SmallVector<mlir::Value> boundsOps;
     genBoundsOps(rewriter, liveIn.getLoc(), declareOp, boundsOps);
 
+    // Use the raw address to avoid unboxing `fir.box` values whenever possible.
+    // Put differently, if we have access to the direct value memory
+    // reference/address, we use it.
+    mlir::Value rawAddr = declareOp.getOriginalBase();
     return Fortran::lower::omp ::internal::createMapInfoOp(
-        rewriter, liveIn.getLoc(), declareOp.getBase(), /*varPtrPtr=*/{},
-        declareOp.getUniqName().str(), boundsOps, /*members=*/{},
+        rewriter, liveIn.getLoc(), rawAddr,
+        /*varPtrPtr=*/{}, declareOp.getUniqName().str(), boundsOps,
+        /*members=*/{},
         /*membersIndex=*/mlir::DenseIntElementsAttr{},
         static_cast<
             std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
             mapFlag),
-        captureKind, liveInType);
+        captureKind, rawAddr.getType());
   }
 
   mlir::omp::TargetOp genTargetOp(mlir::Location loc,
@@ -754,14 +821,24 @@ private:
       auto miOp = mlir::cast<mlir::omp::MapInfoOp>(mapInfoOp.getDefiningOp());
       hlfir::DeclareOp liveInDeclare = genLiveInDeclare(rewriter, arg, miOp);
       mlir::Value miOperand = miOp.getVariableOperand(0);
-      mapper.map(miOperand, liveInDeclare.getBase());
+
+      // TODO If `miOperand.getDefiningOp()` is a `fir::BoxAddrOp`, we probably
+      // need to "unpack" the box by getting the defining op of it's value.
+      // However, we did not hit this case in reality yet so leaving it as a
+      // todo for now.
+
+      mapper.map(miOperand, liveInDeclare.getOriginalBase());
 
       if (auto origDeclareOp = mlir::dyn_cast_if_present<hlfir::DeclareOp>(
               miOperand.getDefiningOp()))
-        mapper.map(origDeclareOp.getOriginalBase(),
-                   liveInDeclare.getOriginalBase());
+        mapper.map(origDeclareOp.getBase(), liveInDeclare.getBase());
     }
 
+    fir::FirOpBuilder firBuilder(
+        rewriter,
+        fir::getKindMapping(targetOp->getParentOfType<mlir::ModuleOp>()));
+    Fortran::lower::omp::internal::cloneOrMapRegionOutsiders(firBuilder,
+                                                             targetOp);
     rewriter.setInsertionPoint(
         rewriter.create<mlir::omp::TerminatorOp>(targetOp.getLoc()));
 
