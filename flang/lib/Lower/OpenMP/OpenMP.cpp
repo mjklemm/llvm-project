@@ -2286,6 +2286,12 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     if (dsp.getAllSymbolsToPrivatize().contains(&sym))
       return;
 
+    // Structure component symbols don't have bindings, and can only be
+    // explicitly mapped individually. If a member is captured implicitly
+    // we map the entirety of the derived type when we find its symbol.
+    if (sym.owner().IsDerivedType())
+      return;
+
     // if the symbol is part of an already mapped common block, do not make a
     // map for it.
     if (const Fortran::semantics::Symbol *common =

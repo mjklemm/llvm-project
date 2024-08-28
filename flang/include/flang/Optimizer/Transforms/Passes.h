@@ -42,7 +42,6 @@ namespace fir {
 #define GEN_PASS_DECL_CHARACTERCONVERSION
 #define GEN_PASS_DECL_CFGCONVERSION
 #define GEN_PASS_DECL_CUFOPCONVERSION
-#define GEN_PASS_DECL_DOCONCURRENTCONVERSIONPASS
 #define GEN_PASS_DECL_EXTERNALNAMECONVERSION
 #define GEN_PASS_DECL_MEMREFDATAFLOWOPT
 #define GEN_PASS_DECL_SIMPLIFYINTRINSICS
@@ -56,12 +55,10 @@ namespace fir {
 #define GEN_PASS_DECL_STACKRECLAIM
 #define GEN_PASS_DECL_LOOPVERSIONING
 #define GEN_PASS_DECL_ADDALIASTAGS
-#define GEN_PASS_DECL_OMPMAPINFOFINALIZATIONPASS
-#define GEN_PASS_DECL_OMPMARKDECLARETARGETPASS
-#define GEN_PASS_DECL_OMPFUNCTIONFILTERING
 #define GEN_PASS_DECL_VSCALEATTR
 #define GEN_PASS_DECL_FUNCTIONATTR
 #define GEN_PASS_DECL_CONSTANTARGUMENTGLOBALISATIONOPT
+#define GEN_PASS_DECL_COMPILERGENERATEDNAMESCONVERSION
 
 #include "flang/Optimizer/Transforms/Passes.h.inc"
 
@@ -83,8 +80,6 @@ std::unique_ptr<mlir::Pass> createOMPGlobalFilteringPass();
 std::unique_ptr<mlir::Pass> createVScaleAttrPass();
 std::unique_ptr<mlir::Pass>
 createVScaleAttrPass(std::pair<unsigned, unsigned> vscaleAttr);
-
-std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
 
 void populateCfgConversionRewrites(mlir::RewritePatternSet &patterns,
                                    bool forceLoopToExecuteOnce = false,

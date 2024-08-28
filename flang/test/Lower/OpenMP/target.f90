@@ -320,13 +320,13 @@ subroutine omp_target_data_mt
    !CHECK: omp.terminator
    !$omp end target data
    !CHECK: }
-   !CHECK %[[BOUNDS_B:.*]] = omp.map.bounds   lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}})
-   !CHECK %[[MAP_B:.*]] = omp.map.info var_ptr(%[[VAR_B_DECL]]#1 : !fir.ref<!fir.array<1024xi32>>, !fir.array<1024xi32>)   map_clauses(always, from) capture(ByRef) bounds(%[[BOUNDS_B]]) -> !fir.ref<!fir.array<1024xi32>> {name = "b"}
-   !CHECK omp.target_data   map_entries(%[[MAP_B]] : !fir.ref<!fir.array<1024xi32>>) {
-   !!$omp target data map(always, from : b)
-   !CHECK omp.terminator
-   !!$omp end target data
-   !CHECK }
+   !CHECK: %[[BOUNDS_B:.*]] = omp.map.bounds   lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}})
+   !CHECK: %[[MAP_B:.*]] = omp.map.info var_ptr(%[[VAR_B_DECL]]#1 : !fir.ref<!fir.array<1024xi32>>, !fir.array<1024xi32>)   map_clauses(always, from) capture(ByRef) bounds(%[[BOUNDS_B]]) -> !fir.ref<!fir.array<1024xi32>> {name = "b"}
+   !CHECK: omp.target_data   map_entries(%[[MAP_B]] : !fir.ref<!fir.array<1024xi32>>) {
+   !$omp target data map(always, from : b)
+   !CHECK: omp.terminator
+   !$omp end target data
+   !CHECK: }
 end subroutine omp_target_data_mt
 
 !===============================================================================
