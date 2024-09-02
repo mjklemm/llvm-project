@@ -164,7 +164,7 @@ public:
     return allPrivatizedSymbols;
   }
 
-  llvm::ArrayRef<const semantics::Symbol *> getDelayedPrivSyms() const {
+  llvm::ArrayRef<const semantics::Symbol *> getDelayedPrivSymbols() const {
     return useDelayedPrivatization
                ? allPrivatizedSymbols.getArrayRef()
                : llvm::ArrayRef<const semantics::Symbol *>();

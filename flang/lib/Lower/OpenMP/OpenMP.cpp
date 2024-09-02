@@ -890,6 +890,11 @@ struct OpWithBodyGenInfo {
     return *this;
   }
 
+  OpWithBodyGenInfo &setGenSkeletonOnly(bool value) {
+    genSkeletonOnly = value;
+    return *this;
+  }
+
   /// [inout] converter to use for the clauses.
   lower::AbstractConverter &converter;
   /// [in] Symbol table
@@ -909,6 +914,9 @@ struct OpWithBodyGenInfo {
   /// [in] if provided, emits the op's region entry. Otherwise, an emtpy block
   /// is created in the region.
   GenOMPRegionEntryCBFn genRegionEntryCB = nullptr;
+  /// [in] if set to `true`, skip generating nested evaluations and dispatching
+  /// any further leaf constructs.
+  bool genSkeletonOnly = false;
 };
 
 /// Create the body (block) for an OpenMP Operation.
@@ -973,20 +981,22 @@ static void createBodyOfOp(mlir::Operation &op, const OpWithBodyGenInfo &info,
     }
   }
 
-  if (ConstructQueue::const_iterator next = std::next(item);
-      next != queue.end()) {
-    genOMPDispatch(info.converter, info.symTable, info.semaCtx, info.eval,
-                   info.loc, queue, next);
-  } else {
-    // genFIR(Evaluation&) tries to patch up unterminated blocks, causing
-    // a lot of complications for our approach if the terminator generation
-    // is delayed past this point. Insert a temporary terminator here, then
-    // delete it.
-    firOpBuilder.setInsertionPointToEnd(&op.getRegion(0).back());
-    auto *temp = lower::genOpenMPTerminator(firOpBuilder, &op, info.loc);
-    firOpBuilder.setInsertionPointAfter(marker);
-    genNestedEvaluations(info.converter, info.eval);
-    temp->erase();
+  if (!info.genSkeletonOnly) {
+    if (ConstructQueue::const_iterator next = std::next(item);
+        next != queue.end()) {
+      genOMPDispatch(info.converter, info.symTable, info.semaCtx, info.eval,
+                     info.loc, queue, next);
+    } else {
+      // genFIR(Evaluation&) tries to patch up unterminated blocks, causing
+      // a lot of complications for our approach if the terminator generation
+      // is delayed past this point. Insert a temporary terminator here, then
+      // delete it.
+      firOpBuilder.setInsertionPointToEnd(&op.getRegion(0).back());
+      auto *temp = lower::genOpenMPTerminator(firOpBuilder, &op, info.loc);
+      firOpBuilder.setInsertionPointAfter(marker);
+      genNestedEvaluations(info.converter, info.eval);
+      temp->erase();
+    }
   }
 
   // Get or create a unique exiting block from the given region, or
@@ -1298,7 +1308,8 @@ static void genBodyOfTargetOp(
         });
   }
 
-  for (auto [argIndex, argSymbol] : llvm::enumerate(dsp.getDelayedPrivSyms())) {
+  for (auto [argIndex, argSymbol] :
+       llvm::enumerate(dsp.getDelayedPrivSymbols())) {
     argIndex = mapSyms.size() + argIndex;
 
     const mlir::BlockArgument &arg = region.getArgument(argIndex);
@@ -1914,6 +1925,7 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
               mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
               llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
               llvm::ArrayRef<mlir::Type> reductionTypes,
+              DataSharingProcessor *dsp, bool isComposite = false,
               mlir::omp::TargetOp parentTarget = nullptr) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
@@ -1926,11 +1938,13 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
       OpWithBodyGenInfo(converter, symTable, semaCtx, loc, eval,
                         llvm::omp::Directive::OMPD_parallel)
           .setClauses(&item->clauses)
-          .setGenRegionEntryCb(reductionCallback);
+          .setGenRegionEntryCb(reductionCallback)
+          .setGenSkeletonOnly(isComposite);
 
   if (!enableDelayedPrivatization) {
     auto parallelOp =
         genOpWithBody<mlir::omp::ParallelOp>(genInfo, queue, item, clauseOps);
+    parallelOp.setComposite(isComposite);
     if (numThreadsClauseOps.numThreads) {
       if (parentTarget)
         parentTarget.getNumThreadsMutable().assign(
@@ -1942,12 +1956,7 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     return parallelOp;
   }
 
-  DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
-                           lower::omp::isLastItemInQueue(item, queue),
-                           /*useDelayedPrivatization=*/true, &symTable);
-  dsp.processStep1();
-  dsp.processStep2(&clauseOps);
-
+  assert(dsp && "expected valid DataSharingProcessor");
   auto genRegionEntryCB = [&](mlir::Operation *op) {
     auto parallelOp = llvm::cast<mlir::omp::ParallelOp>(op);
 
@@ -1971,8 +1980,8 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
                              allRegionArgLocs);
 
     llvm::SmallVector<const semantics::Symbol *> allSymbols(reductionSyms);
-    allSymbols.append(dsp.getDelayedPrivSyms().begin(),
-                      dsp.getDelayedPrivSyms().end());
+    allSymbols.append(dsp->getDelayedPrivSymbols().begin(),
+                      dsp->getDelayedPrivSymbols().end());
 
     unsigned argIdx = 0;
     for (const semantics::Symbol *arg : allSymbols) {
@@ -1999,9 +2008,10 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     return allSymbols;
   };
 
-  genInfo.setGenRegionEntryCb(genRegionEntryCB).setDataSharingProcessor(&dsp);
+  genInfo.setGenRegionEntryCb(genRegionEntryCB).setDataSharingProcessor(dsp);
   auto parallelOp =
       genOpWithBody<mlir::omp::ParallelOp>(genInfo, queue, item, clauseOps);
+  parallelOp.setComposite(isComposite);
   if (numThreadsClauseOps.numThreads) {
     if (parentTarget)
       parentTarget.getNumThreadsMutable().assign(
@@ -2009,89 +2019,6 @@ genParallelOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     else
       parallelOp.getNumThreadsMutable().assign(numThreadsClauseOps.numThreads);
   }
-  return parallelOp;
-}
-
-static mlir::omp::ParallelOp genParallelCompositeOp(
-    lower::AbstractConverter &converter, semantics::SemanticsContext &semaCtx,
-    const List<Clause> &clauses, lower::pft::Evaluation &eval,
-    mlir::Location loc, mlir::omp::ParallelOperands &clauseOps,
-    mlir::omp::NumThreadsClauseOps &numThreadsClauseOps,
-    llvm::ArrayRef<const semantics::Symbol *> reductionSyms,
-    llvm::ArrayRef<mlir::Type> reductionTypes, mlir::omp::TargetOp parentTarget,
-    DataSharingProcessor &dsp) {
-  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
-
-  // Create omp.parallel operation.
-  auto parallelOp = firOpBuilder.create<mlir::omp::ParallelOp>(loc, clauseOps);
-  parallelOp.setComposite(/*val=*/true);
-
-  if (numThreadsClauseOps.numThreads) {
-    if (parentTarget)
-      parentTarget.getNumThreadsMutable().assign(
-          numThreadsClauseOps.numThreads);
-    else
-      parallelOp.getNumThreadsMutable().assign(numThreadsClauseOps.numThreads);
-  }
-
-  // Populate entry block arguments with reduction and private variables.
-  llvm::SmallVector<mlir::Type> blockArgTypes(reductionTypes.begin(),
-                                              reductionTypes.end());
-  llvm::SmallVector<mlir::Location> blockArgLocs(reductionTypes.size(), loc);
-  llvm::SmallVector<const semantics::Symbol *> blockSyms(reductionSyms);
-
-  if (enableDelayedPrivatization) {
-    mlir::OperandRange privateVars = parallelOp.getPrivateVars();
-
-    blockArgTypes.reserve(blockArgTypes.size() + privateVars.size());
-    llvm::transform(privateVars, std::back_inserter(blockArgTypes),
-                    [](mlir::Value v) { return v.getType(); });
-
-    blockArgLocs.reserve(blockArgLocs.size() + privateVars.size());
-    llvm::transform(privateVars, std::back_inserter(blockArgLocs),
-                    [](mlir::Value v) { return v.getLoc(); });
-
-    llvm::append_range(blockSyms, dsp.getDelayedPrivSyms());
-  }
-
-  mlir::Region &region = parallelOp.getRegion();
-  firOpBuilder.createBlock(&region, /*insertPt=*/{}, blockArgTypes,
-                           blockArgLocs);
-
-  // Bind syms to block args.
-  unsigned argIdx = 0;
-  for (const semantics::Symbol *arg : blockSyms) {
-    auto bind = [&](const semantics::Symbol *sym) {
-      mlir::BlockArgument blockArg = region.getArgument(argIdx++);
-      converter.bindSymbol(*sym, hlfir::translateToExtendedValue(
-                                     loc, firOpBuilder, hlfir::Entity{blockArg},
-                                     /*contiguousHint=*/
-                                     evaluate::IsSimplyContiguous(
-                                         *sym, converter.getFoldingContext()))
-                                     .first);
-    };
-
-    if (const auto *commonDet =
-            arg->detailsIf<semantics::CommonBlockDetails>()) {
-      for (const auto &mem : commonDet->objects())
-        bind(&*mem);
-    } else
-      bind(arg);
-  }
-
-  // Handle threadprivate and copyin, which would normally be done as part of
-  // `createBodyOfOp()`. However, when generating `omp.parallel` as part of a
-  // composite construct, we can't recursively lower its contents. This prevents
-  // us from being able to rely on the existing `genOpWithBody()` flow.
-  {
-    mlir::OpBuilder::InsertionGuard guard(firOpBuilder);
-    threadPrivatizeVars(converter, eval);
-  }
-  ClauseProcessor(converter, semaCtx, clauses).processCopyin();
-
-  firOpBuilder.setInsertionPoint(
-      lower::genOpenMPTerminator(firOpBuilder, parallelOp, loc));
-
   return parallelOp;
 }
 
@@ -2614,9 +2541,19 @@ static void genStandaloneParallel(lower::AbstractConverter &converter,
                      evalOutsideTarget, parallelClauseOps, numThreadsClauseOps,
                      reductionTypes, reductionSyms);
 
+  std::optional<DataSharingProcessor> dsp;
+  if (enableDelayedPrivatization) {
+    dsp.emplace(converter, semaCtx, item->clauses, eval,
+                lower::omp::isLastItemInQueue(item, queue),
+                /*useDelayedPrivatization=*/true, &symTable);
+    dsp->processStep1();
+    dsp->processStep2(&parallelClauseOps);
+  }
   genParallelOp(converter, symTable, semaCtx, eval, loc, queue, item,
                 parallelClauseOps, numThreadsClauseOps, reductionSyms,
-                reductionTypes, evalOutsideTarget ? targetOp : nullptr);
+                reductionTypes,
+                enableDelayedPrivatization ? &dsp.value() : nullptr,
+                /*isComposite=*/false, evalOutsideTarget ? targetOp : nullptr);
 }
 
 static void genStandaloneSimd(lower::AbstractConverter &converter,
@@ -2669,8 +2606,6 @@ static void genCompositeDistributeParallelDo(
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
     ConstructQueue::const_iterator item) {
-  // TODO: When delayed privatization is supported, do privatization for each
-  // leaf construct.
   lower::StatementContext stmtCtx;
 
   assert(std::distance(item, queue.end()) == 3 && "Invalid leaf constructs");
@@ -2695,12 +2630,12 @@ static void genCompositeDistributeParallelDo(
                            /*shouldCollectPreDeterminedSymbols=*/true,
                            /*useDelayedPrivatization=*/true, &symTable);
   dsp.processStep1();
-  dsp.processStep2(enableDelayedPrivatization ? &parallelClauseOps : nullptr);
+  dsp.processStep2(&parallelClauseOps);
 
-  genParallelCompositeOp(converter, semaCtx, parallelItem->clauses, eval, loc,
-                         parallelClauseOps, numThreadsClauseOps,
-                         parallelReductionSyms, parallelReductionTypes,
-                         evalOutsideTarget ? targetOp : nullptr, dsp);
+  genParallelOp(converter, symTable, semaCtx, eval, loc, queue, parallelItem,
+                parallelClauseOps, numThreadsClauseOps, parallelReductionSyms,
+                parallelReductionTypes, &dsp, /*isComposite=*/true,
+                evalOutsideTarget ? targetOp : nullptr);
 
   // Clause processing.
   mlir::omp::DistributeOperands distributeClauseOps;
@@ -2748,8 +2683,6 @@ static void genCompositeDistributeParallelDoSimd(
     semantics::SemanticsContext &semaCtx, lower::pft::Evaluation &eval,
     mlir::Location loc, const ConstructQueue &queue,
     ConstructQueue::const_iterator item) {
-  // TODO: When delayed privatization is supported, do privatization for each
-  // leaf construct.
   lower::StatementContext stmtCtx;
 
   assert(std::distance(item, queue.end()) == 4 && "Invalid leaf constructs");
@@ -2775,12 +2708,12 @@ static void genCompositeDistributeParallelDoSimd(
                            /*shouldCollectPreDeterminedSymbols=*/true,
                            /*useDelayedPrivatization=*/true, &symTable);
   dsp.processStep1();
-  dsp.processStep2(enableDelayedPrivatization ? &parallelClauseOps : nullptr);
+  dsp.processStep2(&parallelClauseOps);
 
-  genParallelCompositeOp(converter, semaCtx, parallelItem->clauses, eval, loc,
-                         parallelClauseOps, numThreadsClauseOps,
-                         parallelReductionSyms, parallelReductionTypes,
-                         evalOutsideTarget ? targetOp : nullptr, dsp);
+  genParallelOp(converter, symTable, semaCtx, eval, loc, queue, parallelItem,
+                parallelClauseOps, numThreadsClauseOps, parallelReductionSyms,
+                parallelReductionTypes, &dsp, /*isComposite=*/true,
+                evalOutsideTarget ? targetOp : nullptr);
 
   // Clause processing.
   mlir::omp::DistributeOperands distributeClauseOps;
@@ -2838,8 +2771,6 @@ static void genCompositeDistributeSimd(lower::AbstractConverter &converter,
                                        mlir::Location loc,
                                        const ConstructQueue &queue,
                                        ConstructQueue::const_iterator item) {
-  // TODO: When delayed privatization is supported, do privatization for each
-  // leaf construct.
   lower::StatementContext stmtCtx;
 
   assert(std::distance(item, queue.end()) == 2 && "Invalid leaf constructs");
@@ -2898,8 +2829,6 @@ static void genCompositeDoSimd(lower::AbstractConverter &converter,
                                lower::pft::Evaluation &eval, mlir::Location loc,
                                const ConstructQueue &queue,
                                ConstructQueue::const_iterator item) {
-  // TODO: When delayed privatization is supported, do privatization for each
-  // leaf construct.
   lower::StatementContext stmtCtx;
 
   assert(std::distance(item, queue.end()) == 2 && "Invalid leaf constructs");
@@ -2978,6 +2907,10 @@ static bool genOMPCompositeDispatch(lower::AbstractConverter &converter,
   using llvm::omp::Directive;
   using lower::omp::matchLeafSequence;
 
+  // TODO: Privatization for composite constructs is currently only done based
+  // on the clauses for their last leaf construct, which may not always be
+  // correct. Consider per-leaf privatization of composite constructs once
+  // delayed privatization is supported by all participating ops.
   if (matchLeafSequence(item, queue, Directive::OMPD_distribute_parallel_do))
     genCompositeDistributeParallelDo(converter, symTable, semaCtx, eval, loc,
                                      queue, item);
