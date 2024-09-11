@@ -1369,7 +1369,7 @@ static LogicalResult verifyMapClause(Operation *op, OperandRange mapVars) {
 
 void TargetDataOp::build(OpBuilder &builder, OperationState &state,
                          const TargetDataOperands &clauses) {
-  TargetDataOp::build(builder, state, clauses.device, clauses.ifVar,
+  TargetDataOp::build(builder, state, clauses.device, clauses.ifExpr,
                       clauses.mapVars, clauses.useDeviceAddrVars,
                       clauses.useDevicePtrVars);
 }
@@ -1394,7 +1394,7 @@ void TargetEnterDataOp::build(
   MLIRContext *ctx = builder.getContext();
   TargetEnterDataOp::build(builder, state,
                            makeArrayAttr(ctx, clauses.dependKinds),
-                           clauses.dependVars, clauses.device, clauses.ifVar,
+                           clauses.dependVars, clauses.device, clauses.ifExpr,
                            clauses.mapVars, clauses.nowait);
 }
 
@@ -1414,7 +1414,7 @@ void TargetExitDataOp::build(OpBuilder &builder, OperationState &state,
   MLIRContext *ctx = builder.getContext();
   TargetExitDataOp::build(builder, state,
                           makeArrayAttr(ctx, clauses.dependKinds),
-                          clauses.dependVars, clauses.device, clauses.ifVar,
+                          clauses.dependVars, clauses.device, clauses.ifExpr,
                           clauses.mapVars, clauses.nowait);
 }
 
@@ -1433,7 +1433,7 @@ void TargetUpdateOp::build(OpBuilder &builder, OperationState &state,
                            const TargetEnterExitUpdateDataOperands &clauses) {
   MLIRContext *ctx = builder.getContext();
   TargetUpdateOp::build(builder, state, makeArrayAttr(ctx, clauses.dependKinds),
-                        clauses.dependVars, clauses.device, clauses.ifVar,
+                        clauses.dependVars, clauses.device, clauses.ifExpr,
                         clauses.mapVars, clauses.nowait);
 }
 
@@ -1455,7 +1455,7 @@ void TargetOp::build(OpBuilder &builder, OperationState &state,
   // inReductionByref, inReductionSyms.
   TargetOp::build(builder, state, /*allocate_vars=*/{}, /*allocator_vars=*/{},
                   makeArrayAttr(ctx, clauses.dependKinds), clauses.dependVars,
-                  clauses.device, clauses.hasDeviceAddrVars, clauses.ifVar,
+                  clauses.device, clauses.hasDeviceAddrVars, clauses.ifExpr,
                   /*in_reduction_vars=*/{}, /*in_reduction_byref=*/nullptr,
                   /*in_reduction_syms=*/nullptr, clauses.isDevicePtrVars,
                   clauses.mapVars, clauses.nowait, /*num_teams_lower=*/nullptr,
@@ -1637,9 +1637,8 @@ void ParallelOp::build(OpBuilder &builder, OperationState &state,
 void ParallelOp::build(OpBuilder &builder, OperationState &state,
                        const ParallelOperands &clauses) {
   MLIRContext *ctx = builder.getContext();
-
   ParallelOp::build(builder, state, clauses.allocateVars, clauses.allocatorVars,
-                    clauses.ifVar, clauses.numThreads, clauses.privateVars,
+                    clauses.ifExpr, clauses.numThreads, clauses.privateVars,
                     makeArrayAttr(ctx, clauses.privateSyms),
                     clauses.procBindKind, clauses.reductionVars,
                     makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
@@ -1737,13 +1736,12 @@ void TeamsOp::build(OpBuilder &builder, OperationState &state,
                     const TeamsOperands &clauses) {
   MLIRContext *ctx = builder.getContext();
   // TODO Store clauses in op: privateVars, privateSyms.
-  TeamsOp::build(builder, state, clauses.allocateVars, clauses.allocatorVars,
-                 clauses.ifVar, clauses.numTeamsLower, clauses.numTeamsUpper,
-                 /*private_vars=*/{},
-                 /*private_syms=*/nullptr, clauses.reductionVars,
-                 makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
-                 makeArrayAttr(ctx, clauses.reductionSyms),
-                 clauses.threadLimit);
+  TeamsOp::build(
+      builder, state, clauses.allocateVars, clauses.allocatorVars,
+      clauses.ifExpr, clauses.numTeamsLower, clauses.numTeamsUpper,
+      /*private_vars=*/{}, /*private_syms=*/nullptr, clauses.reductionVars,
+      makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
+      makeArrayAttr(ctx, clauses.reductionSyms), clauses.threadLimit);
 }
 
 LogicalResult TeamsOp::verify() {
@@ -1963,7 +1961,7 @@ void SimdOp::build(OpBuilder &builder, OperationState &state,
   // TODO Store clauses in op: linearVars, linearStepVars, privateVars,
   // privateSyms, reductionVars, reductionByref, reductionSyms.
   SimdOp::build(builder, state, clauses.alignedVars,
-                makeArrayAttr(ctx, clauses.alignments), clauses.ifVar,
+                makeArrayAttr(ctx, clauses.alignments), clauses.ifExpr,
                 /*linear_vars=*/{}, /*linear_step_vars=*/{},
                 clauses.nontemporalVars, clauses.order, clauses.orderMod,
                 /*private_vars=*/{}, /*private_syms=*/nullptr,
@@ -2146,7 +2144,7 @@ void TaskOp::build(OpBuilder &builder, OperationState &state,
   // TODO Store clauses in op: privateVars, privateSyms.
   TaskOp::build(builder, state, clauses.allocateVars, clauses.allocatorVars,
                 makeArrayAttr(ctx, clauses.dependKinds), clauses.dependVars,
-                clauses.final, clauses.ifVar, clauses.inReductionVars,
+                clauses.final, clauses.ifExpr, clauses.inReductionVars,
                 makeDenseBoolArrayAttr(ctx, clauses.inReductionByref),
                 makeArrayAttr(ctx, clauses.inReductionSyms), clauses.mergeable,
                 clauses.priority, /*private_vars=*/{}, /*private_syms=*/nullptr,
@@ -2192,7 +2190,7 @@ void TaskloopOp::build(OpBuilder &builder, OperationState &state,
   // TODO Store clauses in op: privateVars, privateSyms.
   TaskloopOp::build(
       builder, state, clauses.allocateVars, clauses.allocatorVars,
-      clauses.final, clauses.grainsize, clauses.ifVar, clauses.inReductionVars,
+      clauses.final, clauses.grainsize, clauses.ifExpr, clauses.inReductionVars,
       makeDenseBoolArrayAttr(ctx, clauses.inReductionByref),
       makeArrayAttr(ctx, clauses.inReductionSyms), clauses.mergeable,
       clauses.nogroup, clauses.numTasks, clauses.priority, /*private_vars=*/{},
@@ -2574,7 +2572,7 @@ LogicalResult AtomicCaptureOp::verifyRegions() {
 
 void CancelOp::build(OpBuilder &builder, OperationState &state,
                      const CancelOperands &clauses) {
-  CancelOp::build(builder, state, clauses.cancelDirective, clauses.ifVar);
+  CancelOp::build(builder, state, clauses.cancelDirective, clauses.ifExpr);
 }
 
 LogicalResult CancelOp::verify() {

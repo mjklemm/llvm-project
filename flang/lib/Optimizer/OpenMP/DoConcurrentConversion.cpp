@@ -61,6 +61,13 @@ createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
   mlir::TypeAttr varType = mlir::TypeAttr::get(
       llvm::cast<mlir::omp::PointerLikeType>(retTy).getElementType());
 
+  // For types with unknown extents such as <2x?xi32> we discard the incomplete
+  // type info and only retain the base type. The correct dimensions are later
+  // recovered through the bounds info.
+  if (auto seqType = llvm::dyn_cast<fir::SequenceType>(varType.getValue()))
+    if (seqType.hasDynamicExtents())
+      varType = mlir::TypeAttr::get(seqType.getEleTy());
+
   mlir::omp::MapInfoOp op = builder.create<mlir::omp::MapInfoOp>(
       loc, retTy, baseAddr, varType, varPtrPtr, members, membersIndex, bounds,
       builder.getIntegerAttr(builder.getIntegerType(64, false), mapType),
@@ -71,7 +78,7 @@ createMapInfoOp(mlir::OpBuilder &builder, mlir::Location loc,
 }
 
 mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
-                               const mlir::omp::LoopRelatedOps &ops) {
+                               const mlir::omp::LoopRelatedClauseOps &ops) {
   using namespace mlir::arith;
   assert(ops.loopLowerBounds.size() == ops.loopUpperBounds.size() &&
          ops.loopLowerBounds.size() == ops.loopSteps.size() &&
@@ -694,7 +701,7 @@ public:
       auto parentModule = doLoop->getParentOfType<mlir::ModuleOp>();
       fir::FirOpBuilder firBuilder(rewriter, fir::getKindMapping(parentModule));
 
-      mlir::omp::LoopRelatedOps loopClauseOps;
+      mlir::omp::LoopRelatedClauseOps loopClauseOps;
       loopClauseOps.loopLowerBounds.push_back(lbOp->getResult(0));
       loopClauseOps.loopUpperBounds.push_back(ubOp->getResult(0));
       loopClauseOps.loopSteps.push_back(stepOp->getResult(0));
@@ -786,7 +793,7 @@ private:
     // Put differently, if we have access to the direct value memory
     // reference/address, we use it.
     mlir::Value rawAddr = declareOp.getOriginalBase();
-    return Fortran::lower::omp ::internal::createMapInfoOp(
+    return Fortran::lower::omp::internal::createMapInfoOp(
         rewriter, liveIn.getLoc(), rawAddr,
         /*varPtrPtr=*/{}, declareOp.getUniqName().str(), boundsOps,
         /*members=*/{},

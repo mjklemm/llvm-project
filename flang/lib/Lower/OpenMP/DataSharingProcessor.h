@@ -68,9 +68,7 @@ private:
                           lower::pft::Evaluation &eval) const;
   };
 
-  bool hasLastPrivateOp;
   mlir::OpBuilder::InsertPoint lastPrivIP;
-  mlir::OpBuilder::InsertPoint insPt;
   llvm::SmallVector<mlir::Value> loopIVs;
   // Symbols in private, firstprivate, and/or lastprivate clauses.
   llvm::SetVector<const semantics::Symbol *> explicitlyPrivatizedSymbols;

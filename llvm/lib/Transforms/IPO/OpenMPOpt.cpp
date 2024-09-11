@@ -299,7 +299,6 @@ struct OMPInformationCache : public InformationCache {
       OMPBuilder.Config.IsGPU = false;
       break;
     }
-
     OMPBuilder.initialize();
     initializeRuntimeFunctions(M);
     initializeInternalControlVars();
