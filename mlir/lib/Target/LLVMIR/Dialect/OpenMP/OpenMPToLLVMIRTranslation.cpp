@@ -2854,7 +2854,7 @@ static llvm::omp::OpenMPOffloadMappingFlags mapParentWithMembers(
     ompBuilder.setCorrectMemberOfFlag(mapFlag, memberOfFlag);
     combinedInfo.Types.emplace_back(mapFlag);
     combinedInfo.DevicePointers.emplace_back(
-        llvm::OpenMPIRBuilder::DeviceInfoTy::None);
+        mapData.DevicePointers[mapDataIndex]);
     combinedInfo.Names.emplace_back(LLVM::createMappingInformation(
         mapData.MapClause[mapDataIndex]->getLoc(), ompBuilder));
     combinedInfo.BasePointers.emplace_back(mapData.BasePointers[mapDataIndex]);
@@ -2932,7 +2932,7 @@ static void processMapMembersWithParent(
 
     combinedInfo.Types.emplace_back(mapFlag);
     combinedInfo.DevicePointers.emplace_back(
-        mapData.DevicePointers[memberDataIdx]);
+        llvm::OpenMPIRBuilder::DeviceInfoTy::None);
     combinedInfo.Names.emplace_back(
         LLVM::createMappingInformation(memberClause.getLoc(), ompBuilder));
 
