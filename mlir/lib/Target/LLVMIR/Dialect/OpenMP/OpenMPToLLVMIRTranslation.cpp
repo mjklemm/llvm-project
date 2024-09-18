@@ -2932,7 +2932,7 @@ static void processMapMembersWithParent(
 
     combinedInfo.Types.emplace_back(mapFlag);
     combinedInfo.DevicePointers.emplace_back(
-        mapData.DevicePointers[memberDataIdx]);
+        llvm::OpenMPIRBuilder::DeviceInfoTy::None);
     combinedInfo.Names.emplace_back(
         LLVM::createMappingInformation(memberClause.getLoc(), ompBuilder));
 
