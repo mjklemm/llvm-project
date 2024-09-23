@@ -2918,7 +2918,7 @@ RISCVInstrInfo::getOutliningTypeImpl(const MachineModuleInfo &MMI,
     // if any possible.
     if (MO.getTargetFlags() == RISCVII::MO_PCREL_LO &&
         (MI.getMF()->getTarget().getFunctionSections() || F.hasComdat() ||
-         F.hasSection()))
+         F.hasSection() || F.getSectionPrefix()))
       return outliner::InstrType::Illegal;
   }
 
@@ -3025,7 +3025,6 @@ std::string RISCVInstrInfo::createMIROperandComment(
        << (Policy & RISCVII::MASK_AGNOSTIC ? "ma" : "mu");
   }
 
-  OS.flush();
   return Comment;
 }
 

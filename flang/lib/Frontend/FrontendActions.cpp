@@ -443,7 +443,7 @@ void PrintPreprocessedAction::executeAction() {
   // If a pre-defined output stream exists, dump the preprocessed content there
   if (!ci.isOutputStreamNull()) {
     // Send the output to the pre-defined output buffer.
-    ci.writeOutputStream(outForPP.str());
+    ci.writeOutputStream(buf);
     return;
   }
 
@@ -454,7 +454,7 @@ void PrintPreprocessedAction::executeAction() {
     return;
   }
 
-  (*os) << outForPP.str();
+  (*os) << buf;
 }
 
 void DebugDumpProvenanceAction::executeAction() {
@@ -774,7 +774,7 @@ getRISCVVScaleRange(CompilerInstance &ci) {
       outputErrMsg << errMsg.getMessage();
     });
     ci.getDiagnostics().Report(clang::diag::err_invalid_feature_combination)
-        << outputErrMsg.str();
+        << buffer;
     return std::nullopt;
   }
 
@@ -1109,8 +1109,7 @@ public:
     msgStream << diagInfo.getMsg();
 
     // Emit message.
-    diags.Report(diagID) << clang::AddFlagValue(diagInfo.getPassName())
-                         << msgStream.str();
+    diags.Report(diagID) << clang::AddFlagValue(diagInfo.getPassName()) << msg;
   }
 
   void optimizationRemarkHandler(
