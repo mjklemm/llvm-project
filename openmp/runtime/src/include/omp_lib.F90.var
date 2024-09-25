@@ -957,6 +957,21 @@
             logical (kind=omp_logical_kind) kmp_get_cancellation_status
           end function kmp_get_cancellation_status
 
+          #define _TGT_KERNEL_LANGUAGE_DECL(NAME) \
+              function ompx_##NAME() bind(c) ;\
+                use omp_lib_kinds ;\
+                integer (kind=omp_integer_kind) ompx_##NAME ;\
+              end function ompx_##NAME
+          #define _TGT_KERNEL_LANGUAGE_DECL_3(NAME) \
+              _TGT_KERNEL_LANGUAGE_DECL(NAME##_x) ;\
+              _TGT_KERNEL_LANGUAGE_DECL(NAME##_y) ;\
+              _TGT_KERNEL_LANGUAGE_DECL(NAME##_z)
+
+          _TGT_KERNEL_LANGUAGE_DECL_3(thread_id)
+          _TGT_KERNEL_LANGUAGE_DECL_3(block_dim)
+          _TGT_KERNEL_LANGUAGE_DECL_3(block_id)
+          _TGT_KERNEL_LANGUAGE_DECL_3(grid_dim)
+
         end interface
 
         ! make the above routine definitions public
@@ -1078,5 +1093,14 @@
         public :: kmp_set_warnings_on
         public :: kmp_set_warnings_off
         public :: kmp_get_cancellation_status
+
+        #define _TGT_KERNEL_LANGUAGE_PUBLIC_3(NAME) \
+            public :: ompx_##NAME##_x ;\
+            public :: ompx_##NAME##_y ;\
+            public :: ompx_##NAME##_z
+        _TGT_KERNEL_LANGUAGE_PUBLIC_3(thread_id)
+        _TGT_KERNEL_LANGUAGE_PUBLIC_3(block_dim)
+        _TGT_KERNEL_LANGUAGE_PUBLIC_3(block_id)
+        _TGT_KERNEL_LANGUAGE_PUBLIC_3(grid_dim)
 
       end module omp_lib
