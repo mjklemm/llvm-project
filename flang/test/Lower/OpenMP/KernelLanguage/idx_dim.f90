@@ -1,4 +1,4 @@
-! RUN: %flang_fc1 -emit-hlfir -fopenmp %s -o - | FileCheck %s
+! RUN: %flang_fc1 -emit-hlfir %openmp_flags %s -o - | FileCheck %s
 
 module mod1
 contains
@@ -20,7 +20,8 @@ contains
   end subroutine sub1
 
   subroutine host()
-    !$ omp target teams ompx_bare num_teams(1, 2, 3) thread_limit(4, 5, 6)
+    !$omp target teams
     call sub1()
+    !$omp end target teams
   end subroutine host
 end module
