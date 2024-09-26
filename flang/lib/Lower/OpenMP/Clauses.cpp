@@ -925,7 +925,7 @@ NumTeams make(const parser::OmpClause::NumTeams &inp,
 NumThreads make(const parser::OmpClause::NumThreads &inp,
                 semantics::SemanticsContext &semaCtx) {
   // inp.v -> parser::ScalarIntExpr
-  return NumThreads{/*Nthreads=*/makeExpr(inp.v, semaCtx)};
+  return NumThreads{/*Nthreads=*/makeList(inp.v, makeExprFn(semaCtx))};
 }
 
 // OmpxAttribute: empty

@@ -1058,16 +1058,28 @@ convertOmpTeams(omp::TeamsOp op, llvm::IRBuilderBase &builder,
   };
 
   llvm::Value *numTeamsLower = nullptr;
-  if (Value numTeamsLowerVar = op.getNumTeamsLower())
-    numTeamsLower = moduleTranslation.lookupValue(numTeamsLowerVar);
+  auto numTeamsLowerVars = op.getThreadLimit();
+  if (numTeamsLowerVars.size() > 1)
+    return op.emitError("Teams in non-bare mode does not support multiple "
+                        "dimenions in num_teams");
+  if (numTeamsLowerVars.size() == 1)
+    numTeamsLower = moduleTranslation.lookupValue(numTeamsLowerVars[0]);
 
   llvm::Value *numTeamsUpper = nullptr;
-  if (Value numTeamsUpperVar = op.getNumTeamsUpper())
-    numTeamsUpper = moduleTranslation.lookupValue(numTeamsUpperVar);
+  auto numTeamsUpperVars = op.getThreadLimit();
+  if (numTeamsUpperVars.size() > 1)
+    return op.emitError("Teams in non-bare mode does not support multiple "
+                        "dimenions in num_teams");
+  if (numTeamsUpperVars.size() == 1)
+    numTeamsUpper = moduleTranslation.lookupValue(numTeamsUpperVars[0]);
 
   llvm::Value *threadLimit = nullptr;
-  if (Value threadLimitVar = op.getThreadLimit())
-    threadLimit = moduleTranslation.lookupValue(threadLimitVar);
+  auto threadLimitVars = op.getThreadLimit();
+  if (threadLimitVars.size() > 1)
+    return op.emitError("Teams in non-bare mode does not support multiple "
+                        "dimenions in thread_limit");
+  if (threadLimitVars.size() == 1)
+    threadLimit = moduleTranslation.lookupValue(threadLimitVars[0]);
 
   llvm::Value *ifExpr = nullptr;
   if (Value ifVar = op.getIfExpr())
@@ -1746,9 +1758,15 @@ convertOmpParallel(omp::ParallelOp opInst, llvm::IRBuilderBase &builder,
   llvm::Value *ifCond = nullptr;
   if (auto ifVar = opInst.getIfExpr())
     ifCond = moduleTranslation.lookupValue(ifVar);
+
   llvm::Value *numThreads = nullptr;
-  if (auto numThreadsVar = opInst.getNumThreads())
-    numThreads = moduleTranslation.lookupValue(numThreadsVar);
+  auto numThreadsVars = opInst.getNumThreads();
+  if (numThreadsVars.size() > 1)
+    return opInst.emitError("Parallel in non-bare mode does not support "
+                            "multiple dimenions in num_threads");
+  if (numThreadsVars.size() == 1)
+    numThreads = moduleTranslation.lookupValue(numThreadsVars[0]);
+
   auto pbKind = llvm::omp::OMP_PROC_BIND_default;
   if (auto bind = opInst.getProcBindKind())
     pbKind = getProcBindKind(*bind);
@@ -3216,7 +3234,7 @@ static bool targetOpSupported(Operation &opInst) {
     return false;
   }
 
-  if (targetOp.getThreadLimit()) {
+  if (!targetOp.getThreadLimit().empty()) {
     opInst.emitError("Thread limit clause not yet supported");
     return false;
   }
@@ -3449,8 +3467,22 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   if (!getTargetEntryUniqueInfo(entryInfo, targetOp, parentName))
     return failure();
 
-  int32_t defaultValTeams = -1;
-  int32_t defaultValThreads = 0;
+// TODO
+#if 0
+  bool IsBare = D.hasClausesOfKind<OMPXBareClause>();
+#else
+  bool isBare = false;
+#endif
+  SmallVector<llvm::Value *, 3> numTeams;
+  SmallVector<llvm::Value *, 3> numThreads;
+  if (isBare) {
+    // TODO tmp actually put in the team num and thread num
+    numTeams.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), -1));
+    numThreads.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), 0));
+  } else {
+    numTeams.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), -1));
+    numThreads.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), 0));
+  }
 
   llvm::OpenMPIRBuilder::InsertPointTy allocaIP =
       findAllocaInsertPoint(builder, moduleTranslation);
@@ -3501,9 +3533,8 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
                   moduleTranslation, dds);
 
   builder.restoreIP(moduleTranslation.getOpenMPBuilder()->createTarget(
-      ompLoc, isOffloadEntry, allocaIP, builder.saveIP(), entryInfo,
-      defaultValTeams, defaultValThreads, kernelInput, genMapInfoCB, bodyCB,
-      argAccessorCB, dds));
+      ompLoc, isOffloadEntry, allocaIP, builder.saveIP(), entryInfo, numTeams,
+      numThreads, kernelInput, genMapInfoCB, bodyCB, argAccessorCB, dds));
 
   // Remap access operations to declare target reference pointers for the
   // device, essentially generating extra loadop's as necessary

@@ -1478,7 +1478,7 @@ void ParallelOp::build(OpBuilder &builder, OperationState &state,
                        ArrayRef<NamedAttribute> attributes) {
   ParallelOp::build(builder, state, /*allocate_vars=*/ValueRange(),
                     /*allocator_vars=*/ValueRange(), /*if_expr=*/nullptr,
-                    /*num_threads=*/nullptr, /*private_vars=*/ValueRange(),
+                    /*num_threads=*/ValueRange(), /*private_vars=*/ValueRange(),
                     /*private_syms=*/nullptr, /*proc_bind_kind=*/nullptr,
                     /*reduction_vars=*/ValueRange(),
                     /*reduction_byref=*/nullptr, /*reduction_syms=*/nullptr);
@@ -1607,10 +1607,13 @@ LogicalResult TeamsOp::verify() {
     return emitError("expected to be nested inside of omp.target or not nested "
                      "in any OpenMP dialect operations");
 
+  if (getNumTeamsLower().size() != getNumTeamsUpper().size())
+    return emitError(
+        "expected the same number of lower and upper bounds for num_teams");
   // Check for num_teams clause restrictions
-  if (auto numTeamsLowerBound = getNumTeamsLower()) {
-    auto numTeamsUpperBound = getNumTeamsUpper();
-    if (!numTeamsUpperBound)
+  for (auto [numTeamsLowerBound, numTeamsUpperBound] :
+       llvm::zip(getNumTeamsLower(), getNumTeamsUpper())) {
+    if (numTeamsLowerBound && !numTeamsUpperBound)
       return emitError("expected num_teams upper bound to be defined if the "
                        "lower bound is defined");
     if (numTeamsLowerBound.getType() != numTeamsUpperBound.getType())

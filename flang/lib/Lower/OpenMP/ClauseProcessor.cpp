@@ -16,6 +16,7 @@
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Parser/tools.h"
 #include "flang/Semantics/tools.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 
 namespace Fortran {
@@ -363,11 +364,21 @@ bool ClauseProcessor::processNumTeams(
     // The num_teams directive accepts a list of team lower/upper bounds.
     // This is an extension to support grid specification for ompx_bare.
     // Here, only expect a single element in the list.
-    assert(clause->v.size() == 1);
-    // auto lowerBound = std::get<std::optional<ExprTy>>(clause->v[0]->t);
-    auto &upperBound = std::get<ExprTy>(clause->v[0].t);
+    auto &bounds = clause->v;
     result.numTeamsUpper =
-        fir::getBase(converter.genExprValue(upperBound, stmtCtx));
+        llvm::map_to_vector(bounds, [&](auto v) -> mlir::Value {
+          return fir::getBase(
+              converter.genExprValue(std::get<1>(v.t), stmtCtx));
+        });
+    result.numTeamsLower = llvm::map_to_vector(
+        llvm::zip(bounds, result.numTeamsUpper), [&](auto p) -> mlir::Value {
+          auto v = std::get<0>(p);
+          auto upperBound = std::get<1>(p);
+          auto expr = std::get<0>(v.t);
+          if (expr)
+            return fir::getBase(converter.genExprValue(*expr, stmtCtx));
+          return upperBound;
+        });
     return true;
   }
   return false;
@@ -379,7 +390,9 @@ bool ClauseProcessor::processNumThreads(
   if (auto *clause = findUniqueClause<omp::clause::NumThreads>()) {
     // OMPIRBuilder expects `NUM_THREADS` clause as a `Value`.
     result.numThreads =
-        fir::getBase(converter.genExprValue(clause->v, stmtCtx));
+        llvm::map_to_vector(clause->v, [&](auto v) -> mlir::Value {
+          return fir::getBase(converter.genExprValue(v, stmtCtx));
+        });
     return true;
   }
   return false;
@@ -514,7 +527,9 @@ bool ClauseProcessor::processThreadLimit(
     mlir::omp::ThreadLimitClauseOps &result) const {
   if (auto *clause = findUniqueClause<omp::clause::ThreadLimit>()) {
     result.threadLimit =
-        fir::getBase(converter.genExprValue(clause->v, stmtCtx));
+        llvm::map_to_vector(clause->v, [&](auto v) -> mlir::Value {
+          return fir::getBase(converter.genExprValue(v, stmtCtx));
+        });
     return true;
   }
   return false;

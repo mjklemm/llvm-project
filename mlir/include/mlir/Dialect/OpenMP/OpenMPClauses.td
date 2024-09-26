@@ -759,8 +759,8 @@ class OpenMP_NumTeamsClauseSkip<
   > : OpenMP_Clause<traits, arguments, assemblyFormat, description,
                     extraClassDeclaration> {
   let arguments = (ins
-    Optional<AnyInteger>:$num_teams_lower,
-    Optional<AnyInteger>:$num_teams_upper
+    Variadic<AnyInteger>:$num_teams_lower,
+    Variadic<AnyInteger>:$num_teams_upper
   );
 
   let optAssemblyFormat = [{
@@ -790,7 +790,7 @@ class OpenMP_NumThreadsClauseSkip<
   > : OpenMP_Clause<traits, arguments, assemblyFormat, description,
                     extraClassDeclaration> {
   let arguments = (ins
-    Optional<IntLikeType>:$num_threads
+    Variadic<IntLikeType>:$num_threads
   );
 
   let optAssemblyFormat = [{

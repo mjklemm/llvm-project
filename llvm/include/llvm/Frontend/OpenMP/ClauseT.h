@@ -906,7 +906,8 @@ template <typename T, typename I, typename E> //
 struct NumThreadsT {
   using Nthreads = E;
   using WrapperTrait = std::true_type;
-  Nthreads v;
+  using List = ListT<Nthreads>;
+  List v;
 };
 
 template <typename T, typename I, typename E> //
