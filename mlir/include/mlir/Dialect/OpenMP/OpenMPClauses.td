@@ -1152,7 +1152,7 @@ class OpenMP_ThreadLimitClauseSkip<
   > : OpenMP_Clause<traits, arguments, assemblyFormat, description,
                     extraClassDeclaration> {
   let arguments = (ins
-    Optional<AnyInteger>:$thread_limit
+    Variadic<AnyInteger>:$thread_limit
   );
 
   let optAssemblyFormat = [{

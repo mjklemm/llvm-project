@@ -916,10 +916,10 @@ NumTasks make(const parser::OmpClause::NumTasks &inp,
 
 NumTeams make(const parser::OmpClause::NumTeams &inp,
               semantics::SemanticsContext &semaCtx) {
-  // inp.v -> parser::ScalarIntExpr
-  List<NumTeams::Range> v{{{/*LowerBound=*/std::nullopt,
-                            /*UpperBound=*/makeExpr(inp.v, semaCtx)}}};
-  return NumTeams{/*List=*/v};
+  // inp.v -> std::list<parser::ScalarIntExpr>
+  return NumTeams{/*List=*/makeList(inp.v, [&](auto &&s) -> NumTeams::Range {
+    return {{std::nullopt, makeExpr(s, semaCtx)}};
+  })};
 }
 
 NumThreads make(const parser::OmpClause::NumThreads &inp,
@@ -1161,7 +1161,7 @@ TaskReduction make(const parser::OmpClause::TaskReduction &inp,
 ThreadLimit make(const parser::OmpClause::ThreadLimit &inp,
                  semantics::SemanticsContext &semaCtx) {
   // inp.v -> parser::ScalarIntExpr
-  return ThreadLimit{/*Threadlim=*/makeExpr(inp.v, semaCtx)};
+  return ThreadLimit{/*Threadlim=*/makeList(inp.v, makeExprFn(semaCtx))};
 }
 
 // Threadprivate: empty

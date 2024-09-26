@@ -20,7 +20,7 @@ contains
   end subroutine sub1
 
   subroutine host()
-    !$omp target teams
+    !$omp target teams num_teams(1, 2, 3)
     call sub1()
     !$omp end target teams
   end subroutine host

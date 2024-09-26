@@ -1095,7 +1095,8 @@ template <typename T, typename I, typename E> //
 struct ThreadLimitT {
   using Threadlim = E;
   using WrapperTrait = std::true_type;
-  Threadlim v;
+  using List = ListT<Threadlim>;
+  List v;
 };
 
 // V5.2: [15.10.3] `parallelization-level` clauses

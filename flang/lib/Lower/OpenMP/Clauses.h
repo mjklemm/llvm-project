@@ -18,6 +18,7 @@
 #include "llvm/Frontend/OpenMP/ClauseT.h"
 
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 

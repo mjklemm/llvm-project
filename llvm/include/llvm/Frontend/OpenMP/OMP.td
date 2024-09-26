@@ -313,6 +313,7 @@ def OMPC_NumTasks : Clause<"num_tasks"> {
 def OMPC_NumTeams : Clause<"num_teams"> {
   let clangClass = "OMPNumTeamsClause";
   let flangClass = "ScalarIntExpr";
+  let isValueList = true;
 }
 def OMPC_NumThreads : Clause<"num_threads"> {
   let clangClass = "OMPNumThreadsClause";
@@ -444,6 +445,7 @@ def OMPC_TaskReduction : Clause<"task_reduction"> {
 def OMPC_ThreadLimit : Clause<"thread_limit"> {
   let clangClass = "OMPThreadLimitClause";
   let flangClass = "ScalarIntExpr";
+  let isValueList = true;
 }
 def OMPC_ThreadPrivate : Clause<"threadprivate"> {
   let alternativeName = "threadprivate or thread local";
