@@ -136,6 +136,7 @@ static const OmpDirectiveSet topTargetSet{
     Directive::OMPD_target_parallel_loop,
     Directive::OMPD_target_simd,
     Directive::OMPD_target_teams,
+    Directive::OMPD_target_teams_parallel,
     Directive::OMPD_target_teams_distribute,
     Directive::OMPD_target_teams_distribute_parallel_do,
     Directive::OMPD_target_teams_distribute_parallel_do_simd,
@@ -174,6 +175,7 @@ static const OmpDirectiveSet topTeamsSet{
 static const OmpDirectiveSet allTeamsSet{
     OmpDirectiveSet{
         Directive::OMPD_target_teams,
+        Directive::OMPD_target_teams_parallel,
         Directive::OMPD_target_teams_distribute,
         Directive::OMPD_target_teams_distribute_parallel_do,
         Directive::OMPD_target_teams_distribute_parallel_do_simd,
@@ -216,6 +218,7 @@ static const OmpDirectiveSet blockConstructSet{
     Directive::OMPD_target_data,
     Directive::OMPD_target_parallel,
     Directive::OMPD_target_teams,
+    Directive::OMPD_target_teams_parallel,
     Directive::OMPD_task,
     Directive::OMPD_taskgroup,
     Directive::OMPD_teams,

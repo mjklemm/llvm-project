@@ -512,6 +512,8 @@ TYPE_PARSER(construct<OmpBlockDirective>(first(
     "TARGET DATA" >> pure(llvm::omp::Directive::OMPD_target_data),
     "TARGET PARALLEL" >> pure(llvm::omp::Directive::OMPD_target_parallel),
     "TARGET TEAMS" >> pure(llvm::omp::Directive::OMPD_target_teams),
+    "TARGET TEAMS PARALLEL" >>
+        pure(llvm::omp::Directive::OMPD_target_teams_parallel),
     "TARGET" >> pure(llvm::omp::Directive::OMPD_target),
     "TASK"_id >> pure(llvm::omp::Directive::OMPD_task),
     "TASKGROUP" >> pure(llvm::omp::Directive::OMPD_taskgroup),

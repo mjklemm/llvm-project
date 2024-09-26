@@ -1049,7 +1049,9 @@ def TargetOp : OpenMP_Op<"target", traits = [
     OpenMP_AllocateClause, OpenMP_DependClause, OpenMP_DeviceClause,
     OpenMP_HasDeviceAddrClause, OpenMP_IfClause, OpenMP_InReductionClause,
     OpenMP_IsDevicePtrClause, OpenMP_MapClause, OpenMP_NowaitClause,
-    OpenMP_PrivateClause, OpenMP_ThreadLimitClause
+    OpenMP_PrivateClause, OpenMP_ThreadLimitClause,
+    OpenMP_NumTeamsClause, OpenMP_NumThreadsClause,
+    OpenMP_BareClause,
   ], singleRegion = true> {
   let summary = "target construct";
   let description = [{

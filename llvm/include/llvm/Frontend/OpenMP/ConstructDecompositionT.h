@@ -224,6 +224,8 @@ private:
   bool
   applyClause(const tomp::clause::ThreadLimitT<TypeTy, IdTy, ExprTy> &clause,
               const ClauseTy *);
+  bool applyClause(const tomp::clause::NumTeamsT<TypeTy, IdTy, ExprTy> &clause,
+                   const ClauseTy *);
   bool applyClause(const tomp::clause::OrderT<TypeTy, IdTy, ExprTy> &clause,
                    const ClauseTy *);
   bool applyClause(const tomp::clause::AllocateT<TypeTy, IdTy, ExprTy> &clause,
@@ -758,6 +760,20 @@ bool ConstructDecompositionT<C, H>::applyClause(
     const tomp::clause::ThreadLimitT<TypeTy, IdTy, ExprTy> &clause,
     const ClauseTy *node) {
   // [5.2:340:31]
+  return applyToAll(node);
+}
+
+// for omp target teams, we need to apply to all so that we get it on the
+// omp.target too:
+//
+// 2.7  teams Construct
+// On a combined or composite construct that includes target and teams
+// constructs, the expressions in num_teams and thread_limit clauses are
+// evaluated on the host device on entry to the target construct.
+template <typename C, typename H>
+bool ConstructDecompositionT<C, H>::applyClause(
+    const tomp::clause::NumTeamsT<TypeTy, IdTy, ExprTy> &clause,
+    const ClauseTy *node) {
   return applyToAll(node);
 }
 
