@@ -309,6 +309,7 @@ TYPE_PARSER(
                        parenthesized(nonemptyList(scalarIntExpr)))) ||
     "NUM_THREADS" >> construct<OmpClause>(construct<OmpClause::NumThreads>(
                          parenthesized(nonemptyList(scalarIntExpr)))) ||
+    "OMPX_BARE" >> construct<OmpClause>(construct<OmpClause::OmpxBare>()) ||
     "ORDER" >> construct<OmpClause>(construct<OmpClause::Order>(
                    parenthesized(Parser<OmpOrderClause>{}))) ||
     "ORDERED" >> construct<OmpClause>(construct<OmpClause::Ordered>(

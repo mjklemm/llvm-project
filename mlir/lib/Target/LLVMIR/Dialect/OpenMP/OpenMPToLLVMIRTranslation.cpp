@@ -3476,9 +3476,16 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   SmallVector<llvm::Value *, 3> numTeams;
   SmallVector<llvm::Value *, 3> numThreads;
   if (isBare) {
-    // TODO tmp actually put in the team num and thread num
-    numTeams.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), -1));
-    numThreads.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), 0));
+    for (auto [lower, upper] :
+         llvm::zip(targetOp.getNumTeamsLower(), targetOp.getNumTeamsUpper())) {
+      // We use the upper value to represent the team num for a bare launch
+      numTeams.push_back(moduleTranslation.mapValue(upper));
+    }
+    for (auto num : targetOp.getThreadLimit()) {
+      // We use the omp teams thread limit to represent this, would be nice to
+      // use omp.parallel's num_thread
+      numThreads.push_back(moduleTranslation.mapValue(num));
+    }
   } else {
     numTeams.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), -1));
     numThreads.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), 0));

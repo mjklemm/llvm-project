@@ -21,7 +21,7 @@ contains
 
   subroutine host()
 
-    !$omp target teams num_teams(1, 2, 3) thread_limit(4, 5, 6)
+    !$omp target teams ompx_bare num_teams(1, 2, 3) thread_limit(4, 5, 6)
     call sub1()
     !$omp end target teams
 

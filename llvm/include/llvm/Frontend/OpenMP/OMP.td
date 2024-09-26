@@ -325,7 +325,6 @@ def OMPC_OMPX_Attribute : Clause<"ompx_attribute"> {
 }
 def OMPC_OMPX_Bare : Clause<"ompx_bare"> {
   let clangClass = "OMPXBareClause";
-  let clangClass = "OmpBareClause";
 }
 def OMPC_OMPX_DynCGroupMem : Clause<"ompx_dyn_cgroup_mem"> {
   let clangClass = "OMPXDynCGroupMemClause";
@@ -984,6 +983,7 @@ def OMP_Target : Directive<"target"> {
     VersionedClause<OMPC_Device>,
     VersionedClause<OMPC_If>,
     VersionedClause<OMPC_NoWait>,
+    VersionedClause<OMPC_OMPX_Bare>,
     VersionedClause<OMPC_OMPX_DynCGroupMem>,
     VersionedClause<OMPC_NumTeams>,
     VersionedClause<OMPC_ThreadLimit, 51>,
