@@ -1057,6 +1057,12 @@ convertOmpTeams(omp::TeamsOp op, llvm::IRBuilderBase &builder,
                         moduleTranslation, bodyGenStatus);
   };
 
+  if (op->getParentOfType<omp::TargetOp>().getBare()) {
+    // TODO emit warnings for weird clauses
+    return inlineConvertOmpRegions(op.getRegion(), "omp.bare.teams.region",
+                                   builder, moduleTranslation);
+  }
+
   llvm::Value *numTeamsLower = nullptr;
   auto numTeamsLowerVars = op.getThreadLimit();
   if (numTeamsLowerVars.size() > 1)
@@ -3234,7 +3240,7 @@ static bool targetOpSupported(Operation &opInst) {
     return false;
   }
 
-  if (!targetOp.getThreadLimit().empty()) {
+  if (!targetOp.getThreadLimit().empty() && !targetOp.getBare()) {
     opInst.emitError("Thread limit clause not yet supported");
     return false;
   }
@@ -3467,24 +3473,19 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   if (!getTargetEntryUniqueInfo(entryInfo, targetOp, parentName))
     return failure();
 
-// TODO
-#if 0
-  bool IsBare = D.hasClausesOfKind<OMPXBareClause>();
-#else
-  bool isBare = false;
-#endif
+  bool isBare = targetOp.getBare();
   SmallVector<llvm::Value *, 3> numTeams;
   SmallVector<llvm::Value *, 3> numThreads;
   if (isBare) {
     for (auto [lower, upper] :
          llvm::zip(targetOp.getNumTeamsLower(), targetOp.getNumTeamsUpper())) {
       // We use the upper value to represent the team num for a bare launch
-      numTeams.push_back(moduleTranslation.mapValue(upper));
+      numTeams.push_back(moduleTranslation.lookupValue(upper));
     }
     for (auto num : targetOp.getThreadLimit()) {
       // We use the omp teams thread limit to represent this, would be nice to
       // use omp.parallel's num_thread
-      numThreads.push_back(moduleTranslation.mapValue(num));
+      numThreads.push_back(moduleTranslation.lookupValue(num));
     }
   } else {
     numTeams.push_back(llvm::ConstantInt::get(builder.getInt32Ty(), -1));

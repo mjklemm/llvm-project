@@ -18,6 +18,7 @@
 #include "flang/Semantics/tools.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
 
 namespace Fortran {
 namespace lower {
@@ -353,6 +354,10 @@ bool ClauseProcessor::processMergeable(
 
 bool ClauseProcessor::processNowait(mlir::omp::NowaitClauseOps &result) const {
   return markClauseOccurrence<omp::clause::Nowait>(result.nowait);
+}
+
+bool ClauseProcessor::processBare(mlir::omp::BareClauseOps &result) const {
+  return markClauseOccurrence<omp::clause::OmpxBare>(result.bare);
 }
 
 bool ClauseProcessor::processNumTeams(

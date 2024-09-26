@@ -1172,6 +1172,7 @@ static void genTargetClauses(
 
   cp.processThreadLimit(stmtCtx, clauseOps);
   cp.processNumTeams(stmtCtx, clauseOps);
+  cp.processBare(clauseOps);
 
   cp.processTODO<clause::Allocate, clause::Defaultmap, clause::Firstprivate,
                  clause::InReduction, clause::UsesAllocators>(
