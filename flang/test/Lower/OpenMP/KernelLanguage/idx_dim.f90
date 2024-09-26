@@ -23,7 +23,7 @@ contains
     !omp target teams parallel num_teams(1, 2, 3) num_threads(4, 5, 6)
     !omp target teams parallel
     !$omp target teams num_teams(1, 2, 3)
-    !$omp parallel
+    !$omp parallel num_threads(4, 5, 6)
     call sub1()
     !$omp end parallel
     !$omp end target teams
