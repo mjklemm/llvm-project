@@ -1456,6 +1456,7 @@ void CompilerInvocation::setDefaultPredefinitions() {
   auto &fortranOptions = getFortranOpts();
   const auto &frontendOptions = getFrontendOpts();
   // Populate the macro list with version numbers and other predefinitions.
+  fortranOptions.predefinitions.emplace_back("__amdflang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang_major__",
                                              FLANG_VERSION_MAJOR_STRING);
