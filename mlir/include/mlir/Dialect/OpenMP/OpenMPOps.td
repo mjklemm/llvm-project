@@ -133,8 +133,7 @@ def ParallelOp : OpenMP_Op<"parallel", traits = [
     RecursiveMemoryEffects
   ], clauses = [
     OpenMP_AllocateClause, OpenMP_IfClause, OpenMP_NumThreadsClause,
-    OpenMP_PrivateClauseSkip<assemblyFormat = true>, OpenMP_ProcBindClause,
-    OpenMP_ReductionClauseSkip<assemblyFormat = true>
+    OpenMP_PrivateClause, OpenMP_ProcBindClause, OpenMP_ReductionClause
   ], singleRegion = true> {
   let summary = "parallel construct";
   let description = [{
@@ -151,16 +150,11 @@ def ParallelOp : OpenMP_Op<"parallel", traits = [
     OpBuilder<(ins CArg<"const ParallelOperands &">:$clauses)>
   ];
 
-  // TODO: Use default assembly format inherited from OpenMP_Op once printing
-  // and parsing of the parallel region is not intermingled with printing and
-  // parsing of reduction and private clauses. `assemblyFormat` should also be
-  // no longer skipped for clauses added to this operation at that time.
-  let assemblyFormat =
-    clausesReqAssemblyFormat # " oilist(" # clausesOptAssemblyFormat # ")" # [{
-      custom<ParallelRegion>($region, $reduction_vars, type($reduction_vars),
-                            $reduction_byref, $reduction_syms, $private_vars,
-                            type($private_vars), $private_syms) attr-dict
-    }];
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateReductionRegion>($region, $private_vars, type($private_vars),
+        $private_syms, $reduction_vars, type($reduction_vars), $reduction_byref,
+        $reduction_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -200,6 +194,12 @@ def TeamsOp : OpenMP_Op<"teams", traits = [
     OpBuilder<(ins CArg<"const TeamsOperands &">:$clauses)>
   ];
 
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateReductionRegion>($region, $private_vars, type($private_vars),
+        $private_syms, $reduction_vars, type($reduction_vars), $reduction_byref,
+        $reduction_syms) attr-dict
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -207,8 +207,9 @@ def TeamsOp : OpenMP_Op<"teams", traits = [
 // 2.8.1 Sections Construct
 //===----------------------------------------------------------------------===//
 
-def SectionOp : OpenMP_Op<"section", [HasParent<"SectionsOp">],
-                          singleRegion = true> {
+def SectionOp : OpenMP_Op<"section", traits = [
+    BlockArgOpenMPOpInterface, HasParent<"SectionsOp">
+  ], singleRegion = true> {
   let summary = "section directive";
   let description = [{
     A section operation encloses a region which represents one section in a
@@ -218,6 +219,13 @@ def SectionOp : OpenMP_Op<"section", [HasParent<"SectionsOp">],
     operation. This is done to reflect situations where these block arguments
     represent variables private to each section.
   }];
+  let extraClassDeclaration = [{
+    // Override BlockArgOpenMPOpInterface methods based on the parent
+    // omp.sections operation. Only forward-declare here because SectionsOp is
+    // not completely defined at this point.
+    unsigned numPrivateBlockArgs();
+    unsigned numReductionBlockArgs();
+  }] # clausesExtraClassDeclaration;
   let assemblyFormat = "$region attr-dict";
 }
 
@@ -245,6 +253,12 @@ def SectionsOp : OpenMP_Op<"sections", traits = [
     OpBuilder<(ins CArg<"const SectionsOperands &">:$clauses)>
   ];
 
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateReductionRegion>($region, $private_vars, type($private_vars),
+        $private_syms, $reduction_vars, type($reduction_vars), $reduction_byref,
+        $reduction_syms) attr-dict
+  }];
+
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
@@ -271,6 +285,11 @@ def SingleOp : OpenMP_Op<"single", traits = [
   let builders = [
     OpBuilder<(ins CArg<"const SingleOperands &">:$clauses)>
   ];
+
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateRegion>($region, $private_vars, type($private_vars),
+        $private_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -352,7 +371,7 @@ def WsloopOp : OpenMP_Op<"wsloop", traits = [
   ], clauses = [
     OpenMP_AllocateClause, OpenMP_LinearClause, OpenMP_NowaitClause,
     OpenMP_OrderClause, OpenMP_OrderedClause, OpenMP_PrivateClause,
-    OpenMP_ReductionClauseSkip<assemblyFormat = true>, OpenMP_ScheduleClause
+    OpenMP_ReductionClause, OpenMP_ScheduleClause
   ], singleRegion = true> {
   let summary = "worksharing-loop construct";
   let description = [{
@@ -384,15 +403,11 @@ def WsloopOp : OpenMP_Op<"wsloop", traits = [
     OpBuilder<(ins CArg<"const WsloopOperands &">:$clauses)>
   ];
 
-  // TODO: Use default assembly format inherited from OpenMP_Op once printing
-  // and parsing of the workshare loop region is not intermingled with printing
-  // and parsing of reduction clauses. `assemblyFormat` should also be no longer
-  // skipped for clauses added to this operation at that time.
-  let assemblyFormat =
-    clausesReqAssemblyFormat # " oilist(" # clausesOptAssemblyFormat # ")" # [{
-      custom<Wsloop>($region, $reduction_vars, type($reduction_vars),
-                    $reduction_byref, $reduction_syms) attr-dict
-    }];
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateReductionRegion>($region, $private_vars, type($private_vars),
+        $private_syms, $reduction_vars, type($reduction_vars), $reduction_byref,
+        $reduction_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -442,6 +457,12 @@ def SimdOp : OpenMP_Op<"simd", traits = [
   let builders = [
     OpBuilder<(ins CArg<"const SimdOperands &">:$clauses)>
   ];
+
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateReductionRegion>($region, $private_vars, type($private_vars),
+        $private_syms, $reduction_vars, type($reduction_vars), $reduction_byref,
+        $reduction_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -517,6 +538,11 @@ def DistributeOp : OpenMP_Op<"distribute", traits = [
     OpBuilder<(ins CArg<"const DistributeOperands &">:$clauses)>
   ];
 
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<PrivateRegion>($region, $private_vars, type($private_vars),
+        $private_syms) attr-dict
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -555,6 +581,13 @@ def TaskOp : OpenMP_Op<"task", traits = [
   let builders = [
     OpBuilder<(ins CArg<"const TaskOperands &">:$clauses)>
   ];
+
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<InReductionPrivateRegion>(
+        $region, $in_reduction_vars, type($in_reduction_vars),
+        $in_reduction_byref, $in_reduction_syms, $private_vars,
+        type($private_vars), $private_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -628,9 +661,22 @@ def TaskloopOp : OpenMP_Op<"taskloop", traits = [
     OpBuilder<(ins CArg<"const TaskloopOperands &">:$clauses)>
   ];
 
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<InReductionPrivateReductionRegion>(
+        $region, $in_reduction_vars, type($in_reduction_vars),
+        $in_reduction_byref, $in_reduction_syms, $private_vars,
+        type($private_vars), $private_syms, $reduction_vars,
+        type($reduction_vars), $reduction_byref, $reduction_syms) attr-dict
+  }];
+
   let extraClassDeclaration = [{
     /// Returns the reduction variables
     SmallVector<Value> getAllReductionVars();
+
+    // Define BlockArgOpenMPOpInterface methods here because they are not
+    // inherited from the respective clauses.
+    unsigned numInReductionBlockArgs() { return getInReductionVars().size(); }
+    unsigned numReductionBlockArgs() { return getReductionVars().size(); }
 
     void getEffects(SmallVectorImpl<MemoryEffects::EffectInstance> &effects);
   }] # clausesExtraClassDeclaration;
@@ -660,6 +706,12 @@ def TaskgroupOp : OpenMP_Op<"taskgroup", traits = [
   let builders = [
     OpBuilder<(ins CArg<"const TaskgroupOperands &">:$clauses)>
   ];
+
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<TaskReductionRegion>(
+        $region, $task_reduction_vars, type($task_reduction_vars),
+        $task_reduction_byref, $task_reduction_syms) attr-dict
+  }];
 
   let hasVerifier = 1;
 }
@@ -943,6 +995,12 @@ def TargetDataOp: OpenMP_Op<"target_data", traits = [
     OpBuilder<(ins CArg<"const TargetDataOperands &">:$clauses)>
   ];
 
+  let assemblyFormat = clausesAssemblyFormat # [{
+    custom<UseDeviceAddrUseDevicePtrRegion>(
+        $region, $use_device_addr_vars, type($use_device_addr_vars),
+        $use_device_ptr_vars, type($use_device_ptr_vars)) attr-dict
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -1042,27 +1100,20 @@ def TargetUpdateOp: OpenMP_Op<"target_update", traits = [
 // 2.14.5 target construct
 //===----------------------------------------------------------------------===//
 
-// TODO: It's unlikely the addition of num_teams and num_threads clauses, as
-// well as the introduction of the trip_count and teams_thread_limit arguments
-// will be approved upstream. We may need to attach this information in some
-// other way instead.
+// TODO: Remove num_threads, teams_thread_limit and trip_count and implement the
+// passthrough approach described here:
+// https://discourse.llvm.org/t/rfc-openmp-dialect-representation-of-num-teams-thread-limit-and-target-spmd/81106.
 def TargetOp : OpenMP_Op<"target", traits = [
-    AttrSizedOperandSegments, IsolatedFromAbove, OutlineableOpenMPOpInterface
+    AttrSizedOperandSegments, BlockArgOpenMPOpInterface, IsolatedFromAbove,
+    OutlineableOpenMPOpInterface
   ], clauses = [
     // TODO: Complete clause list (defaultmap, uses_allocators).
-    OpenMP_AllocateClauseSkip<assemblyFormat = true>,
-    OpenMP_DependClauseSkip<assemblyFormat = true>,
-    OpenMP_DeviceClauseSkip<assemblyFormat = true>,
-    OpenMP_HasDeviceAddrClauseSkip<assemblyFormat = true>,
-    OpenMP_IfClauseSkip<assemblyFormat = true>,
-    OpenMP_InReductionClauseSkip<assemblyFormat = true>,
-    OpenMP_IsDevicePtrClauseSkip<assemblyFormat = true>,
-    OpenMP_MapClauseSkip<assemblyFormat = true>,
-    OpenMP_NowaitClauseSkip<assemblyFormat = true>,
-    OpenMP_NumTeamsClauseSkip<assemblyFormat = true, description = true>,
-    OpenMP_NumThreadsClauseSkip<assemblyFormat = true, description = true>,
-    OpenMP_PrivateClauseSkip<assemblyFormat = true>,
-    OpenMP_ThreadLimitClauseSkip<assemblyFormat = true>
+    OpenMP_AllocateClause, OpenMP_DependClause, OpenMP_DeviceClause,
+    OpenMP_HasDeviceAddrClause, OpenMP_IfClause, OpenMP_InReductionClause,
+    OpenMP_IsDevicePtrClause, OpenMP_MapClauseSkip<assemblyFormat = true>,
+    OpenMP_NowaitClause, OpenMP_NumTeamsClauseSkip<description = true>,
+    OpenMP_NumThreadsClauseSkip<description = true>, OpenMP_PrivateClause,
+    OpenMP_ThreadLimitClause
   ], singleRegion = true> {
   let summary = "target construct";
   let description = [{
@@ -1097,36 +1148,9 @@ def TargetOp : OpenMP_Op<"target", traits = [
     OpBuilder<(ins CArg<"const TargetOperands &">:$clauses)>
   ];
 
-  // TODO: Split clausesAssemblyFormat into optional and required parts, so that
-  // trip_count and teams_thread_limit can be appended here rather than having
-  // to rewrite the formatting of all clauses.
-  let assemblyFormat = [{
-    oilist( `allocate` `(`
-      custom<AllocateAndAllocator>($allocate_vars, type($allocate_vars),
-                                   $allocator_vars, type($allocator_vars)) `)`
-    | `depend` `(` custom<DependVarList>($depend_vars, type($depend_vars), $depend_kinds) `)`
-    | `device` `(` $device `:` type($device) `)`
-    | `has_device_addr` `(` $has_device_addr_vars `:` type($has_device_addr_vars) `)`
-    | `if` `(` $if_expr `)`
-    | `in_reduction` `(`
-      custom<ReductionVarList>($in_reduction_vars, type($in_reduction_vars),
-                               $in_reduction_byref, $in_reduction_syms) `)`
-    | `is_device_ptr` `(` $is_device_ptr_vars `:` type($is_device_ptr_vars) `)`
-    | `map_entries` `(` custom<MapEntries>($map_vars, type($map_vars)) `)`
-    | `nowait` $nowait
-    | `num_teams` `(` ( $num_teams_lower^ `:` type($num_teams_lower) )? `to`
-                        $num_teams_upper `:` type($num_teams_upper) `)`
-    | `num_threads` `(` $num_threads `:` type($num_threads) `)`
-    | `private` `(` custom<PrivateList>($private_vars, type($private_vars), $private_syms) `)`
-    | `thread_limit` `(` $thread_limit `:` type($thread_limit) `)`
-    | `trip_count` `(` $trip_count `:` type($trip_count) `)`
-    | `teams_thread_limit` `(` $teams_thread_limit `:` type($teams_thread_limit) `)`
-    ) $region attr-dict
-  }];
-
-  let hasVerifier = 1;
-
   let extraClassDeclaration = [{
+    unsigned numMapBlockArgs() { return getMapVars().size(); }
+
     /// Returns the innermost OpenMP dialect operation captured by this target
     /// construct. For an operation to be detected as captured, it must be
     /// inside a (possibly multi-level) nest of OpenMP dialect operation's
@@ -1143,6 +1167,19 @@ def TargetOp : OpenMP_Op<"target", traits = [
     /// wrapped by omp.teams omp.distribute and omp.parallel constructs.
     bool isTargetSPMDLoop();
   }] # clausesExtraClassDeclaration;
+
+  let assemblyFormat = clausesReqAssemblyFormat #
+    " oilist(" # clausesOptAssemblyFormat # [{
+      | `trip_count` `(` $trip_count `:` type($trip_count) `)`
+      | `teams_thread_limit` `(` $teams_thread_limit `:` type($teams_thread_limit) `)`
+    }] # ")" # [{
+    custom<InReductionMapPrivateRegion>(
+        $region, $in_reduction_vars, type($in_reduction_vars),
+        $in_reduction_byref, $in_reduction_syms, $map_vars, type($map_vars),
+        $private_vars, type($private_vars), $private_syms) attr-dict
+  }];
+
+  let hasVerifier = 1;
 }
 
 

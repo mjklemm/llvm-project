@@ -18,7 +18,6 @@ module attributes {omp.is_target_device = false, omp.target_triples = ["amdgcn-a
     %7 = omp.map.info var_ptr(%4 : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "one_l%array_j"}
     %8 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<"_QFtest_derived_type_allocatable_map_operand_and_block_additionTone_layer", (f32, struct<(ptr, i64, i32, i8, i8, i8, i8)>, array<10 x i32>, f32, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32)>) map_clauses(tofrom) capture(ByRef) members(%7, %6 : [4,-1], [4,0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "one_l", partial_map = true}
     omp.target map_entries(%7 -> %arg1, %6 -> %arg2, %8 -> %arg3 : !llvm.ptr, !llvm.ptr, !llvm.ptr) {
-    ^bb0(%arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr):
       omp.terminator
     }
     llvm.return
@@ -52,7 +51,6 @@ module attributes {omp.is_target_device = false, omp.target_triples = ["amdgcn-a
     %22 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<"_QFtest_allocatable_derived_type_map_operand_and_block_additionTone_layer", (f32, struct<(ptr, i64, i32, i8, i8, i8, i8)>, array<10 x i32>, f32, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32)>) var_ptr_ptr(%21 : !llvm.ptr) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = ""}
     %23 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>) map_clauses(tofrom) capture(ByRef) members(%22, %15, %14, %20 : [0,-1,-1], [0,4,-1], [0,4,0], [0,5,-1] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "one_l"}
     omp.target map_entries(%22 -> %arg1, %15 -> %arg2, %14 -> %arg3, %20 -> %arg4, %23 -> %arg5 : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) {
-    ^bb0(%arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr, %arg4: !llvm.ptr, %arg5: !llvm.ptr):
       omp.terminator
     }
     llvm.return
@@ -90,7 +88,6 @@ module attributes {omp.is_target_device = false, omp.target_triples = ["amdgcn-a
     %26 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<"_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTtop_layer", (f32, struct<(ptr, i64, i32, i8, i8, i8, i8)>, array<10 x i32>, f32, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32, struct<"_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTmiddle_layer", (f32, array<10 x i32>, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32)>)>) var_ptr_ptr(%25 : !llvm.ptr) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = ""}
     %27 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>) map_clauses(tofrom) capture(ByRef) members(%26, %18, %17, %24 : [0,-1,-1,-1], [0,6,2,-1], [0,6,2,0], [0,6,3,-1] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "one_l"}
     omp.target map_entries(%26 -> %arg1, %18 -> %arg2, %17 -> %arg3, %24 -> %arg4, %27 -> %arg5 : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) {
-    ^bb0(%arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr, %arg4: !llvm.ptr, %arg5: !llvm.ptr):
       omp.terminator
     }
     llvm.return
@@ -110,7 +107,6 @@ module attributes {omp.is_target_device = false, omp.target_triples = ["amdgcn-a
     %10 = omp.map.info var_ptr(%7 : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "one_l%nest%array_k"}
     %11 = omp.map.info var_ptr(%arg0 : !llvm.ptr, !llvm.struct<"_QFtest_nested_derived_type_alloca_map_operand_and_block_additionTtop_layer", (f32, struct<(ptr, i64, i32, i8, i8, i8, i8)>, array<10 x i32>, f32, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32, struct<"_QFtest_nested_derived_type_alloca_map_operand_and_block_additionTmiddle_layer", (f32, array<10 x i32>, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32)>)>) map_clauses(tofrom) capture(ByRef) members(%10, %9 : [6,2,-1], [6,2,0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "one_l", partial_map = true}
     omp.target map_entries(%10 -> %arg1, %9 -> %arg2, %11 -> %arg3 : !llvm.ptr, !llvm.ptr, !llvm.ptr) {
-    ^bb0(%arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr):
       omp.terminator
     }
     llvm.return

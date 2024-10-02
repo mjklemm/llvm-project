@@ -16,7 +16,6 @@ func.func @_QPfoo() {
 
   // CHECK: omp.target
   omp.target map_entries(%map_info -> %arg1 : !fir.ref<!fir.array<1xi32>>)  {
-  ^bb0(%arg1: !fir.ref<!fir.array<1xi32>>):
     %c1_2 = arith.constant 1 : index
     %21 = fir.shape %c1_2 : (index) -> !fir.shape<1>
 

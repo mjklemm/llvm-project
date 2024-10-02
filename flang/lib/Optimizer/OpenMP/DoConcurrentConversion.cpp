@@ -253,7 +253,7 @@ bool isIndVarUltimateOperand(mlir::Operation *op, fir::DoLoopOp doLoop) {
   }
 
   return false;
-};
+}
 
 /// Collect the list of values used inside the loop but defined outside of it.
 /// The first item in the returned list is always the loop's induction
@@ -1038,9 +1038,6 @@ class DoConcurrentConversionPass
     : public flangomp::impl::DoConcurrentConversionPassBase<
           DoConcurrentConversionPass> {
 public:
-  using flangomp::impl::DoConcurrentConversionPassBase<
-      DoConcurrentConversionPass>::DoConcurrentConversionPassBase;
-
   DoConcurrentConversionPass() = default;
 
   DoConcurrentConversionPass(

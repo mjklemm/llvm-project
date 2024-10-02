@@ -49,7 +49,7 @@ subroutine omp_target_target_do_simd()
 !CHECK:       %[[MAP_IV_DECL:.*]]:2 = hlfir.declare %[[MAP_IV]]
 !CHECK:       %[[MAP_VAR_DECL:.*]]:2 = hlfir.declare %[[MAP_VAR]]
 !CHECK:       omp.teams {
-!CHECK:         omp.parallel private(@{{.*}} %[[MAP_IV_DECL]]#0 -> %[[IV_PRIV:.*]] : !fir.ref<i64>, @{{.*}} %[[MAP_VAR_DECL]]#0 -> %[[VAR_PRIV:.*]] : !fir.ref<f64>) {
+!CHECK:         omp.parallel private(@{{.*}} %[[MAP_IV_DECL]]#0 -> %[[IV_PRIV:.*]], @{{.*}} %[[MAP_VAR_DECL]]#0 -> %[[VAR_PRIV:.*]] : !fir.ref<i64>, !fir.ref<f64>) {
 !CHECK:         %[[IV_DECL:.*]]:2 = hlfir.declare %[[IV_PRIV]]
 !CHECK:         %[[VAR_DECL:.*]]:2 = hlfir.declare %[[VAR_PRIV]]
 !CHECK:           omp.distribute {

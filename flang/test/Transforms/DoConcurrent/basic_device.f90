@@ -35,11 +35,9 @@ program do_concurrent_basic
     ! CHECK: %[[TRIP_COUNT:.*]] = arith.muli %{{.*}}, %{{.*}} : i64
 
     ! CHECK: omp.target
+    ! CHECK-SAME: trip_count(%[[TRIP_COUNT]] : i64)
     ! CHECK-SAME: map_entries(%[[I_MAP_INFO]] -> %[[I_ARG:[[:alnum:]]+]],
     ! CHECK-SAME:             %[[A_MAP_INFO]] -> %[[A_ARG:.[[:alnum:]]+]]
-    ! CHECK-SAME: trip_count(%[[TRIP_COUNT]] : i64)
-
-    ! CHECK-NEXT: ^{{.*}}(%[[I_ARG]]: !fir.ref<i32>, %[[A_ARG]]: !fir.ref<!fir.array<10xi32>>):
 
     ! CHECK: %[[A_DEV_DECL:.*]]:2 = hlfir.declare %[[A_ARG]]
     ! CHECK: omp.teams {

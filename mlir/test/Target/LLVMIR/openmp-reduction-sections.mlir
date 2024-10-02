@@ -14,7 +14,6 @@ llvm.func @sections_(%arg0: !llvm.ptr {fir.bindc_name = "x"}) attributes {fir.in
   %1 = llvm.mlir.constant(1.000000e+00 : f32) : f32
   omp.parallel {
     omp.sections reduction(@add_reduction_f32 %arg0 -> %arg1 : !llvm.ptr) {
-    ^bb0(%arg1: !llvm.ptr):
       omp.section {
       ^bb0(%arg2: !llvm.ptr):
         %2 = llvm.load %arg2 : !llvm.ptr -> f32

@@ -509,7 +509,7 @@ void Sema::Initialize() {
   if (Context.getTargetInfo().getTriple().isAMDGPU() ||
       (Context.getAuxTargetInfo() &&
        Context.getAuxTargetInfo()->getTriple().isAMDGPU())) {
-#define AMDGPU_TYPE(Name, Id, SingletonId)                                     \
+#define AMDGPU_TYPE(Name, Id, SingletonId, Width, Align)                       \
   addImplicitTypedef(Name, Context.SingletonId);
 #include "clang/Basic/AMDGPUTypes.def"
   }
@@ -1676,7 +1676,7 @@ void Sema::EmitDiagnostic(unsigned DiagID, const DiagnosticBuilder &DB) {
   // that is different from the last template instantiation where
   // we emitted an error, print a template instantiation
   // backtrace.
-  if (!Diags.getDiagnosticIDs()->isNote(DiagID))
+  if (!DiagnosticIDs::isBuiltinNote(DiagID))
     PrintContextStack();
 }
 
@@ -1690,8 +1690,7 @@ bool Sema::hasUncompilableErrorOccurred() const {
   if (Loc == DeviceDeferredDiags.end())
     return false;
   for (auto PDAt : Loc->second) {
-    if (Diags.getDiagnosticIDs()->isDefaultMappingAsError(
-            PDAt.second.getDiagID()))
+    if (DiagnosticIDs::isDefaultMappingAsError(PDAt.second.getDiagID()))
       return true;
   }
   return false;
