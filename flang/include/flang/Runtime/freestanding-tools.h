@@ -63,6 +63,26 @@
 #define STD_TOUPPER_UNSUPPORTED 1
 #endif
 
+#if defined(OMP_OFFLOAD_BUILD) || defined(OMP_NOHOST_BUILD)
+// #pragma message "OMP_OFFLOAD_BUILD or OMP_NOHOST_BUILD is defined"
+#define STD_LIBC_UNSUPPORTED 1
+#define STD_FILL_N_UNSUPPORTED 1
+#define STD_MEMSET_BUILTIN 1
+#define STD_MEMSET_UNSUPPORTED 1
+#define STD_MEMCPY_BUILTIN 1
+#define STD_MEMCPY_UNSUPPORTED 1
+#define STD_MEMMOVE_BUILTIN 1
+#define STD_MEMMOVE_UNSUPPORTED 1
+// #define STD_STRLEN_BUILTIN 1  // still resolves to strlen
+#define STD_STRLEN_UNSUPPORTED 1
+#define STD_MEMCMP_UNSUPPORTED 1
+#define STD_REALLOC_UNSUPPORTED 1
+#define STD_MEMCHR_UNSUPPORTED 1
+#define STD_STRCPY_UNSUPPORTED 1
+#define STD_STRCMP_UNSUPPORTED 1
+#define STD_TOUPPER_UNSUPPORTED 1
+#endif
+
 namespace Fortran::runtime {
 
 #if STD_FILL_N_UNSUPPORTED
@@ -79,7 +99,52 @@ fill_n(A *start, std::size_t count, const B &value) {
 using std::fill_n;
 #endif // !STD_FILL_N_UNSUPPORTED
 
-#if STD_MEMMOVE_UNSUPPORTED
+#if STD_MEMSET_BUILTIN
+static inline RT_API_ATTRS void memset(
+    void *dest, uint8_t value, std::size_t count) {
+  __builtin_memset(dest, value, count);
+}
+#elif STD_MEMSET_UNSUPPORTED
+static inline RT_API_ATTRS void memset(
+    void *dest, uint8_t value, std::size_t count) {
+  char *to{reinterpret_cast<char *>(dest)};
+  while (count--) {
+    *to++ = value;
+  }
+  return;
+}
+#else
+using std::memset;
+#endif
+
+#if STD_MEMCPY_BUILTIN
+static inline RT_API_ATTRS void memcpy(
+    void *dest, const void *src, std::size_t count) {
+  __builtin_memcpy(dest, src, count);
+}
+#elif STD_MEMCPY_UNSUPPORTED
+static inline RT_API_ATTRS void memcpy(
+    void *dest, const void *src, std::size_t count) {
+  char *to{reinterpret_cast<char *>(dest)};
+  const char *from{reinterpret_cast<const char *>(src)};
+  if (to == from) {
+    return;
+  }
+  while (count--) {
+    *to++ = *from++;
+  }
+  return;
+}
+#else
+using std::memcpy;
+#endif
+
+#if STD_MEMMOVE_BUILTIN
+static inline RT_API_ATTRS void memmove(
+    void *dest, const void *src, std::size_t count) {
+  __builtin_memmove(dest, src, count);
+}
+#elif STD_MEMMOVE_UNSUPPORTED
 // Provides alternative implementation for std::memmove(), if
 // it is not supported.
 static inline RT_API_ATTRS void memmove(
@@ -91,7 +156,7 @@ static inline RT_API_ATTRS void memmove(
     return;
   }
   if (to + count <= from || from + count <= to) {
-    std::memcpy(dest, src, count);
+    memcpy(dest, src, count);
   } else if (to < from) {
     while (count--) {
       *to++ = *from++;
@@ -108,7 +173,11 @@ static inline RT_API_ATTRS void memmove(
 using std::memmove;
 #endif // !STD_MEMMOVE_UNSUPPORTED
 
-#if STD_STRLEN_UNSUPPORTED
+#if STD_STRLEN_BUILTIN
+static inline RT_API_ATTRS std::size_t strlen(const char *str) {
+  return __builtin_strlen(str);
+}
+#elif STD_STRLEN_UNSUPPORTED
 // Provides alternative implementation for std::strlen(), if
 // it is not supported.
 static inline RT_API_ATTRS std::size_t strlen(const char *str) {
