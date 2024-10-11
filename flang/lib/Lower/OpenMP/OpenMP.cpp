@@ -1702,8 +1702,8 @@ static void genTaskClauses(lower::AbstractConverter &converter,
   cp.processPriority(stmtCtx, clauseOps);
   cp.processUntied(clauseOps);
 
-  cp.processTODO<clause::Affinity, clause::Detach, clause::InReduction>(
-      loc, llvm::omp::Directive::OMPD_task);
+  cp.processTODO<clause::Affinity, clause::Detach, clause::InReduction,
+                 clause::Mergeable>(loc, llvm::omp::Directive::OMPD_task);
 }
 
 static void genTaskgroupClauses(lower::AbstractConverter &converter,
@@ -3289,7 +3289,10 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
         !std::holds_alternative<clause::ThreadLimit>(clause.u) &&
         !std::holds_alternative<clause::Threads>(clause.u) &&
         !std::holds_alternative<clause::UseDeviceAddr>(clause.u) &&
-        !std::holds_alternative<clause::UseDevicePtr>(clause.u)) {
+        !std::holds_alternative<clause::UseDevicePtr>(clause.u) &&
+        !std::holds_alternative<clause::InReduction>(clause.u) &&
+        !std::holds_alternative<clause::Mergeable>(clause.u) &&
+        !std::holds_alternative<clause::TaskReduction>(clause.u)) {
       TODO(clauseLocation, "OpenMP Block construct clause");
     }
   }
