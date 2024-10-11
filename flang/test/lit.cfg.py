@@ -132,13 +132,13 @@ if config.default_sysroot:
 tools = [
     ToolSubst(
         "%flang",
-        command=FindTool("flang"),
+        command=FindTool("flang-new"),
         extra_args=isysroot_flag,
         unresolved="fatal",
     ),
     ToolSubst(
         "%flang_fc1",
-        command=FindTool("flang"),
+        command=FindTool("flang-new"),
         extra_args=["-fc1"],
         unresolved="fatal",
     ),

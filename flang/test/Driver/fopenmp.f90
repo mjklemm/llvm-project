@@ -73,7 +73,3 @@
 !
 ! CHECK-LD-ANYMD: "{{.*}}ld{{(.exe)?}}"
 ! CHECK-LD-ANYMD: "-l{{(omp|gomp|iomp5md)}}"
-!
-! RUN: %flang -fopenmp -c %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-EXPERIMENTAL
-!
-! CHECK-EXPERIMENTAL: flang{{.*}}: warning: OpenMP support in flang is still experimental
