@@ -153,9 +153,7 @@ void insertChildMapInfoIntoParent(
     Fortran::lower::StatementContext &stmtCtx,
     std::map<Object, OmpMapParentAndMemberData> &parentMemberIndices,
     llvm::SmallVectorImpl<mlir::Value> &mapOperands,
-    llvm::SmallVectorImpl<mlir::Type> *mapSymTypes,
-    llvm::SmallVectorImpl<mlir::Location> *mapSymLocs,
-    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> *mapSymbols);
+    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &mapSymbols);
 
 mlir::Type getLoopVarType(lower::AbstractConverter &converter,
                           std::size_t loopVarTypeSize);
@@ -172,6 +170,9 @@ int64_t getCollapseValue(const List<Clause> &clauses);
 void genObjectList(const ObjectList &objects,
                    lower::AbstractConverter &converter,
                    llvm::SmallVectorImpl<mlir::Value> &operands);
+
+void lastprivateModifierNotSupported(const omp::clause::Lastprivate &lastp,
+                                     mlir::Location loc);
 
 // TODO: consider moving this to the `omp.loop_nest` op. Would be something like
 // this:

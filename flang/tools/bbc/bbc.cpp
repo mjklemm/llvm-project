@@ -234,6 +234,12 @@ static llvm::cl::opt<std::string>
                          llvm::cl::desc("Override host target triple"),
                          llvm::cl::init(""));
 
+static llvm::cl::opt<bool> integerWrapAround(
+    "fwrapv",
+    llvm::cl::desc("Treat signed integer overflow as two's complement"),
+    llvm::cl::init(false));
+
+// TODO: integrate this option with the above
 static llvm::cl::opt<bool>
     setNSW("integer-overflow",
            llvm::cl::desc("add nsw flag to internal operations"),
@@ -390,6 +396,7 @@ static llvm::LogicalResult convertFortranSourceToMLIR(
   Fortran::lower::LoweringOptions loweringOptions{};
   loweringOptions.setNoPPCNativeVecElemOrder(enableNoPPCNativeVecElemOrder);
   loweringOptions.setLowerToHighLevelFIR(useHLFIR || emitHLFIR);
+  loweringOptions.setIntegerWrapAround(integerWrapAround);
   loweringOptions.setNSWOnLoopVarInc(setNSW);
   std::vector<Fortran::lower::EnvironmentDefault> envDefaults = {};
   constexpr const char *tuneCPU = "";

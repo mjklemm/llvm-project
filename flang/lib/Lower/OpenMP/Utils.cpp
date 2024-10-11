@@ -16,13 +16,14 @@
 
 #include <flang/Evaluate/fold.h>
 #include <flang/Lower/AbstractConverter.h>
-#include <flang/Lower/ConvertType.h>
 #include <flang/Lower/ConvertExprToHLFIR.h>
+#include <flang/Lower/ConvertType.h>
 #include <flang/Lower/OpenMP/Clauses.h>
 #include <flang/Lower/PFTBuilder.h>
 #include <flang/Lower/StatementContext.h>
 #include <flang/Lower/SymbolMap.h>
 #include <flang/Optimizer/Builder/FIRBuilder.h>
+#include <flang/Optimizer/Builder/Todo.h>
 #include <flang/Parser/parse-tree.h>
 #include <flang/Parser/tools.h>
 #include <flang/Semantics/tools.h>
@@ -172,12 +173,12 @@ bool isDuplicateMemberMapInfo(OmpMapParentAndMemberData &parentMembers,
   return false;
 }
 
-static void generateArrayIndices(lower::AbstractConverter &converter, 
-                          fir::FirOpBuilder &firOpBuilder,
-                          lower::StatementContext &stmtCtx,
-                          mlir::Location clauseLocation,
-                          llvm::SmallVectorImpl<mlir::Value> &indices,
-                          omp::Object object) {
+static void generateArrayIndices(lower::AbstractConverter &converter,
+                                 fir::FirOpBuilder &firOpBuilder,
+                                 lower::StatementContext &stmtCtx,
+                                 mlir::Location clauseLocation,
+                                 llvm::SmallVectorImpl<mlir::Value> &indices,
+                                 omp::Object object) {
   if (auto maybeRef = evaluate::ExtractDataRef(*object.ref())) {
     evaluate::DataRef ref = *maybeRef;
     if (auto *arr = std::get_if<evaluate::ArrayRef>(&ref.u)) {
@@ -201,11 +202,9 @@ static void generateArrayIndices(lower::AbstractConverter &converter,
   }
 }
 
-static mlir::Value generateBoundsComparisonBranch(fir::FirOpBuilder &firOpBuilder,
-                                           mlir::Location clauseLocation,
-                                           mlir::arith::CmpIPredicate pred,
-                                           mlir::Value index,
-                                           mlir::Value bound) {
+static mlir::Value generateBoundsComparisonBranch(
+    fir::FirOpBuilder &firOpBuilder, mlir::Location clauseLocation,
+    mlir::arith::CmpIPredicate pred, mlir::Value index, mlir::Value bound) {
   auto cmp = firOpBuilder.create<mlir::arith::CmpIOp>(clauseLocation, pred,
                                                       index, bound);
   return firOpBuilder
@@ -454,9 +453,7 @@ void insertChildMapInfoIntoParent(
     lower::StatementContext &stmtCtx,
     std::map<Object, OmpMapParentAndMemberData> &parentMemberIndices,
     llvm::SmallVectorImpl<mlir::Value> &mapOperands,
-    llvm::SmallVectorImpl<mlir::Type> *mapSymTypes,
-    llvm::SmallVectorImpl<mlir::Location> *mapSymLocs,
-    llvm::SmallVectorImpl<const semantics::Symbol *> *mapSymbols) {
+    llvm::SmallVectorImpl<const semantics::Symbol *> &mapSymbols) {
 
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
@@ -464,8 +461,8 @@ void insertChildMapInfoIntoParent(
     bool parentExists = false;
     size_t parentIdx;
 
-    for (parentIdx = 0; parentIdx < mapSymbols->size(); ++parentIdx)
-      if ((*mapSymbols)[parentIdx] == indices.first.sym()) {
+    for (parentIdx = 0; parentIdx < mapSymbols.size(); ++parentIdx)
+      if (mapSymbols[parentIdx] == indices.first.sym()) {
         parentExists = true;
         break;
       }
@@ -524,13 +521,20 @@ void insertChildMapInfoIntoParent(
       extendBoundsFromMultipleSubscripts(converter, stmtCtx, mapOp,
                                          indices.second.parentObjList);
       mapOperands.push_back(mapOp);
-      if (mapSymTypes)
-        mapSymTypes->push_back(mapOp.getType());
-      if (mapSymLocs)
-        mapSymLocs->push_back(mapOp.getLoc());
-      if (mapSymbols)
-        mapSymbols->push_back(indices.first.sym());
+      mapSymbols.push_back(indices.first.sym());
     }
+  }
+}
+
+void lastprivateModifierNotSupported(const omp::clause::Lastprivate &lastp,
+                                     mlir::Location loc) {
+  using Lastprivate = omp::clause::Lastprivate;
+  auto &maybeMod =
+      std::get<std::optional<Lastprivate::LastprivateModifier>>(lastp.t);
+  if (maybeMod) {
+    assert(*maybeMod == Lastprivate::LastprivateModifier::Conditional &&
+           "Unexpected lastprivate modifier");
+    TODO(loc, "lastprivate clause with CONDITIONAL modifier");
   }
 }
 
@@ -611,6 +615,7 @@ mlir::Value calculateTripCount(fir::FirOpBuilder &builder, mlir::Location loc,
 
   return tripCount;
 }
+
 } // namespace omp
 } // namespace lower
 } // namespace Fortran
