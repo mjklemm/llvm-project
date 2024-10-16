@@ -128,6 +128,12 @@ void createHLFIRToFIRPassPipeline(
 using DoConcurrentMappingKind =
     Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
 
+struct OpenMPFIRPassPipelineOpts {
+  bool isTargetDevice;
+  bool enableOffloadGlobalFiltering;
+  DoConcurrentMappingKind doConcurrentMappingKind;
+};
+
 /// Create a pass pipeline for handling certain OpenMP transformations needed
 /// prior to FIR lowering.
 ///
@@ -137,9 +143,8 @@ using DoConcurrentMappingKind =
 /// \param pm - MLIR pass manager that will hold the pipeline definition.
 /// \param isTargetDevice - Whether code is being generated for a target device
 /// rather than the host device.
-void createOpenMPFIRPassPipeline(
-    mlir::PassManager &pm, bool isTargetDevice,
-    DoConcurrentMappingKind doConcurrentMappingKind);
+void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
+                                 OpenMPFIRPassPipelineOpts opts);
 
 #if !defined(FLANG_EXCLUDE_CODEGEN)
 void createDebugPasses(mlir::PassManager &pm,

@@ -29,6 +29,8 @@ namespace flangomp {
 using namespace mlir;
 
 namespace {
+// TODO Remove this pass when AOMP moves to `clang-linker-wrapper` (instead of
+// `clang-offload-packager`).
 class GlobalFilteringPass
     : public flangomp::impl::GlobalFilteringPassBase<GlobalFilteringPass> {
 public:

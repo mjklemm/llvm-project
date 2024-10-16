@@ -295,15 +295,16 @@ static llvm::LogicalResult runOpenMPPasses(mlir::ModuleOp mlirModule) {
   using DoConcurrentMappingKind =
       Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
 
-  auto doConcurrentMappingKind =
+  fir::OpenMPFIRPassPipelineOpts opts;
+  opts.isTargetDevice = enableOpenMPDevice;
+  opts.doConcurrentMappingKind =
       llvm::StringSwitch<DoConcurrentMappingKind>(
           enableDoConcurrentToOpenMPConversion)
           .Case("host", DoConcurrentMappingKind::DCMK_Host)
           .Case("device", DoConcurrentMappingKind::DCMK_Device)
           .Default(DoConcurrentMappingKind::DCMK_None);
 
-  fir::createOpenMPFIRPassPipeline(pm, enableOpenMPDevice,
-                                   doConcurrentMappingKind);
+  fir::createOpenMPFIRPassPipeline(pm, opts);
   (void)mlir::applyPassManagerCLOptions(pm);
   if (mlir::failed(pm.run(mlirModule))) {
     llvm::errs() << "FATAL: failed to correctly apply OpenMP pass pipeline";

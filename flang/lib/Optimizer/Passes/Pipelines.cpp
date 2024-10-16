@@ -241,18 +241,19 @@ void createHLFIRToFIRPassPipeline(mlir::PassManager &pm,
 /// \param pm - MLIR pass manager that will hold the pipeline definition.
 /// \param isTargetDevice - Whether code is being generated for a target device
 /// rather than the host device.
-void createOpenMPFIRPassPipeline(
-    mlir::PassManager &pm, bool isTargetDevice,
-    DoConcurrentMappingKind doConcurrentMappingKind) {
-  if (doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None)
+void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
+                                 OpenMPFIRPassPipelineOpts opts) {
+  if (opts.doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None)
     pm.addPass(flangomp::createDoConcurrentConversionPass(
-        doConcurrentMappingKind == DoConcurrentMappingKind::DCMK_Device));
+        opts.doConcurrentMappingKind == DoConcurrentMappingKind::DCMK_Device));
 
   pm.addPass(flangomp::createMapInfoFinalizationPass());
   pm.addPass(flangomp::createMarkDeclareTargetPass());
-  if (isTargetDevice) {
+  if (opts.isTargetDevice) {
     pm.addPass(flangomp::createFunctionFilteringPass());
-    pm.addPass(flangomp::createGlobalFilteringPass());
+
+    if (opts.enableOffloadGlobalFiltering)
+      pm.addPass(flangomp::createGlobalFilteringPass());
   }
 }
 
