@@ -49,11 +49,7 @@ func.func @_QPfoo() {
               // CHECK: omp.yield
               omp.yield
             }
-            // CHECK: omp.terminator
-            omp.terminator
           } {omp.composite}
-          // CHECK: omp.terminator
-          omp.terminator
         } {omp.composite}
         // CHECK: omp.terminator
         omp.terminator

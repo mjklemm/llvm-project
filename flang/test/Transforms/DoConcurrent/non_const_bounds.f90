@@ -38,7 +38,6 @@ end program main
 ! CHECK:     omp.loop_nest (%{{.*}}) : index = (%[[LB]]) to (%[[UB]]) inclusive step (%{{.*}}) {
 ! CHECK:       omp.yield
 ! CHECK:     }
-! CHECK:     omp.terminator
 ! CHECK:   }
 ! CHECK:   omp.terminator
 ! CHECK: }

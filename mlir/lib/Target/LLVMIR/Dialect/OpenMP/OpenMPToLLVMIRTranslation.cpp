@@ -141,6 +141,8 @@ static llvm::BasicBlock *convertOmpOpRegions(
     Region &region, StringRef blockName, llvm::IRBuilderBase &builder,
     LLVM::ModuleTranslation &moduleTranslation, LogicalResult &bodyGenStatus,
     SmallVectorImpl<llvm::PHINode *> *continuationBlockPHIs = nullptr) {
+  bool isLoopWrapper = isa<omp::LoopWrapperInterface>(region.getParentOp());
+
   llvm::BasicBlock *continuationBlock =
       splitBB(builder, true, "omp.region.cont");
   llvm::BasicBlock *sourceBlock = builder.GetInsertBlock();
@@ -162,7 +164,12 @@ static llvm::BasicBlock *convertOmpOpRegions(
   bool operandsProcessed = false;
   unsigned numYields = 0;
   for (Block &bb : region.getBlocks()) {
-    if (omp::YieldOp yield = dyn_cast<omp::YieldOp>(bb.getTerminator())) {
+    // Prevent loop wrappers from crashing, as they have no terminators.
+    if (isLoopWrapper)
+      continue;
+
+    if (omp::YieldOp yield =
+            dyn_cast_if_present<omp::YieldOp>(bb.getTerminator())) {
       if (!operandsProcessed) {
         for (unsigned i = 0, e = yield->getNumOperands(); i < e; ++i) {
           continuationBlockPHITypes.push_back(
@@ -218,6 +225,13 @@ static llvm::BasicBlock *convertOmpOpRegions(
             moduleTranslation.convertBlock(*bb, bb->isEntryBlock(), builder))) {
       bodyGenStatus = failure();
       return continuationBlock;
+    }
+
+    // Create branch here for loop wrappers to prevent their lack of a
+    // terminator from causing a crash below.
+    if (isLoopWrapper) {
+      builder.CreateBr(continuationBlock);
+      continue;
     }
 
     // Special handling for `omp.yield` and `omp.terminator` (we may have more

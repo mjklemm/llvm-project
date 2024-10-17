@@ -66,12 +66,10 @@ program do_concurrent_basic
     ! CHECK-NEXT: omp.yield
     ! CHECK-NEXT: }
 
+    ! CHECK-NEXT: } {omp.composite}
+    ! CHECK-NEXT: } {omp.composite}
     ! CHECK-NEXT: omp.terminator
-    ! CHECK-NEXT: }
-    ! CHECK-NEXT: omp.terminator
-    ! CHECK-NEXT: }
-    ! CHECK-NEXT: omp.terminator
-    ! CHECK-NEXT: }
+    ! CHECK-NEXT: } {omp.composite}
     ! CHECK-NEXT: omp.terminator
     ! CHECK-NEXT: }
     ! CHECK-NEXT: omp.terminator

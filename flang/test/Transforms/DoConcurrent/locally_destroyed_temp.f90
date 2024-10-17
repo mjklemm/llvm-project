@@ -66,9 +66,7 @@ end program main
 ! COMMON:       fir.call @_FortranADestroy(%[[CONVERTED_LOCAL]])
 ! COMMON:       omp.yield
 ! COMMON:     }
-! COMMON:     omp.terminator
 ! COMMON:   }
-! DEVICE:   omp.terminator
 ! DEVICE:   }
 ! COMMON:   omp.terminator
 ! COMMON: }

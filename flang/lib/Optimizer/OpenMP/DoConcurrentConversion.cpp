@@ -954,8 +954,6 @@ private:
         loc, /*clauses=*/mlir::omp::DistributeOperands{});
 
     rewriter.createBlock(&distOp.getRegion());
-    rewriter.setInsertionPoint(rewriter.create<mlir::omp::TerminatorOp>(loc));
-
     return distOp;
   }
 
@@ -1011,8 +1009,6 @@ private:
     auto wsloopOp = rewriter.create<mlir::omp::WsloopOp>(doLoop.getLoc());
     wsloopOp.setComposite(isComposite);
     rewriter.createBlock(&wsloopOp.getRegion());
-    rewriter.setInsertionPoint(
-        rewriter.create<mlir::omp::TerminatorOp>(wsloopOp.getLoc()));
 
     auto loopNestOp =
         rewriter.create<mlir::omp::LoopNestOp>(doLoop.getLoc(), clauseOps);

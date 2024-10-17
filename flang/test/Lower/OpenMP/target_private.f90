@@ -60,12 +60,9 @@ subroutine omp_target_target_do_simd()
 !CHECK:                   hlfir.assign {{.*}} to %[[VAR_DECL]]#0
 !CHECK:                   omp.yield
 !CHECK-NEXT:            }
-!CHECK-NEXT:            omp.terminator
-!CHECK-NEXT:          }
-!CHECK-NEXT:          omp.terminator
-!CHECK-NEXT:        }
-!CHECK-NEXT:        omp.terminator
-!CHECK-NEXT:      }
+!CHECK-NEXT:          } {omp.composite}
+!CHECK-NEXT:        } {omp.composite}
+!CHECK-NEXT:      } {omp.composite}
 !CHECK-NEXT:      omp.terminator
 !CHECK-NEXT:    }
 !CHECK-NEXT:    omp.terminator

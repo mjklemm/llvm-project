@@ -58,7 +58,6 @@ end
 ! COMMON:   }
 ! COMMON: omp.yield
 ! COMMON: }
-! COMMON: omp.terminator
 ! COMMON: }
 ! COMMON: omp.terminator
 ! COMMON: }

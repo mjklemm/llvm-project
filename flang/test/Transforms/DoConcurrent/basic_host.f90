@@ -37,7 +37,6 @@ program do_concurrent_basic
     ! CHECK-NEXT: hlfir.assign %[[IV_VAL1]] to %[[ARR_ACCESS]] : i32, !fir.ref<i32>
     ! CHECK-NEXT: omp.yield
     ! CHECK-NEXT: }
-    ! CHECK-NEXT: omp.terminator
     ! CHECK-NEXT: }
 
     ! CHECK-NEXT: omp.terminator

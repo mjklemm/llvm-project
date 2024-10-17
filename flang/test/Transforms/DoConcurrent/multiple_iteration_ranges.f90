@@ -114,7 +114,6 @@ end
 
 ! COMMON:      omp.yield
 ! COMMON-NEXT: }
-! COMMON-NEXT: omp.terminator
 ! COMMON-NEXT: }
 
 ! HOST-NEXT: omp.terminator
