@@ -2902,6 +2902,7 @@ public:
   /// instructions for passed in target arguments where necessary.
   /// \param Dependencies A vector of DependData objects that carry
   // dependency information as passed in the depend clause.
+  // \param HasNowait Whether the target construct has a `nowait` clause or not.
   InsertPointTy createTarget(const LocationDescription &Loc, bool IsSPMD,
                              bool IsOffloadEntry, Value *IfCond,
                              OpenMPIRBuilder::InsertPointTy AllocaIP,
@@ -2913,7 +2914,8 @@ public:
                              GenMapInfoCallbackTy GenMapInfoCB,
                              TargetBodyGenCallbackTy BodyGenCB,
                              TargetGenArgAccessorsCallbackTy ArgAccessorFuncCB,
-                             SmallVector<DependData> Dependencies = {});
+                             SmallVector<DependData> Dependencies = {},
+                             bool HasNowait = false);
 
   /// Returns __kmpc_for_static_init_* runtime function for the specified
   /// size \a IVSize and sign \a IVSigned. Will create a distribute call
