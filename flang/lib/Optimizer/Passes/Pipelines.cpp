@@ -248,6 +248,7 @@ void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
         opts.doConcurrentMappingKind == DoConcurrentMappingKind::DCMK_Device));
 
   pm.addPass(flangomp::createMapInfoFinalizationPass());
+  pm.addPass(flangomp::createMapsForPrivatizedSymbolsPass());
   pm.addPass(flangomp::createMarkDeclareTargetPass());
   if (opts.isTargetDevice) {
     pm.addPass(flangomp::createFunctionFilteringPass());
