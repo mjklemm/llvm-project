@@ -20,6 +20,10 @@
 ! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %t/partially_nested.f90 -o - \
 ! RUN:   | FileCheck %s --check-prefixes=DEVICE,COMMON
 
+! This is temporarily disabled since the IR for `do concurrent` loops is different after
+! https://github.com/llvm/llvm-project/pull/114020. This will be enabled again soon.
+! XFAIL: true
+
 !--- multi_range.f90
 program main
    integer, parameter :: n = 10
