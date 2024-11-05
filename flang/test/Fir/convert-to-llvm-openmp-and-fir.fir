@@ -1112,8 +1112,7 @@ func.func @omp_allocatable_derived_type_member_map(%arg0 : !fir.ref<!fir.box<!fi
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK: %[[LOAD_DESCRIPTOR:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
-  // CHECK: llvm.store %[[LOAD_DESCRIPTOR]], %[[DTYPE_ALLOCATABLE_ALOCA]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>, !llvm.ptr
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], %{{.*}})
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFtest_allocatable_derived_type_map_operand_and_block_additionTone_layer{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1125,9 +1124,8 @@ func.func @omp_allocatable_derived_type_member_map(%arg0 : !fir.ref<!fir.box<!fi
   %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>> {name = ""}
   // CHECK: %[[MAP_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_DTYPE_MEMBER]] : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "one_l%array_j"}
   %5 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>> {name = "one_l%array_j"}
-  // CHECK: %[[LOAD_DESCRIPTOR:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], %{{.*}})
   %6 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFtest_allocatable_derived_type_map_operand_and_block_additionTone_layer{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
-  // CHECK: llvm.store %[[LOAD_DESCRIPTOR]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>, !llvm.ptr
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[GEP_DTYPE_REGULAR_MEMBER:.*]] = llvm.getelementptr %[[LOAD_DTYPE_BADDR]][0, 5] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<"_QFtest_allocatable_derived_type_map_operand_and_block_additionTone_layer", (f32, struct<(ptr, i64, i32, i8, i8, i8, i8)>, array<10 x i32>, f32, struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>, i32)>
@@ -1162,8 +1160,7 @@ func.func @omp_alloca_nested_derived_type_map(%arg0 : !fir.ref<!fir.box<!fir.hea
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK: %[[LOAD_DESCRIPTOR:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
-  // CHECK: llvm.store %[[LOAD_DESCRIPTOR]], %[[DTYPE_ALLOCATABLE_ALOCA]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>, !llvm.ptr
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], %{{.*}})
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTtop_layer{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTmiddle_layer{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1177,8 +1174,7 @@ func.func @omp_alloca_nested_derived_type_map(%arg0 : !fir.ref<!fir.box<!fir.hea
   %5 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%4 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>> {name = ""}
   // CHECK: %[[MAP_NESTED_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]] : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>)>) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "one_l%nest%array_k"}
   %6 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>> {name = "one_l%nest%array_k"}
-  // CHECK: %[[LOAD_DESCRIPTOR:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
-  // CHECK: llvm.store %[[LOAD_DESCRIPTOR]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>, !llvm.ptr
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], %{{.*}})
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8, ptr, array<1 x i64>)>
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
   %7 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTtop_layer{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFtest_alloca_nested_derived_type_map_operand_and_block_additionTmiddle_layer{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>

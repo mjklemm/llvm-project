@@ -164,6 +164,10 @@ static LogicalResult checkImplementationStatus(Operation &op) {
     if (op.getDevice())
       result = todo("device");
   };
+  auto checkDistSchedule = [&todo](auto op, LogicalResult &result) {
+    if (op.getDistScheduleStatic() || op.getDistScheduleChunkSize())
+      result = todo("dist_schedule");
+  };
   auto checkHasDeviceAddr = [&todo](auto op, LogicalResult &result) {
     if (!op.getHasDeviceAddrVars().empty())
       result = todo("has_device_addr");
@@ -277,6 +281,12 @@ static LogicalResult checkImplementationStatus(Operation &op) {
             omp::AtomicCaptureOp>([&](auto op) { checkHint(op, result); })
       .Case<omp::TargetEnterDataOp, omp::TargetExitDataOp, omp::TargetUpdateOp>(
           [&](auto op) { checkDepend(op, result); })
+      .Case([&](omp::DistributeOp op) {
+        checkAllocate(op, result);
+        checkDistSchedule(op, result);
+        checkOrder(op, result);
+        checkPrivate(op, result);
+      })
       .Case([&](omp::TargetOp op) {
         checkAllocate(op, result);
         checkDevice(op, result);
@@ -3723,6 +3733,9 @@ convertOmpDistribute(Operation &opInst, llvm::IRBuilderBase &builder,
   llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
   // FIXME: This ignores any other nested wrappers (e.g. omp.wsloop, omp.simd).
   auto distributeOp = cast<omp::DistributeOp>(opInst);
+  if (failed(checkImplementationStatus(opInst)))
+    return failure();
+
   auto loopOp = cast<omp::LoopNestOp>(distributeOp.getWrappedLoop());
 
   SmallVector<omp::LoopWrapperInterface> loopWrappers;
@@ -3744,7 +3757,7 @@ convertOmpDistribute(Operation &opInst, llvm::IRBuilderBase &builder,
       auto loopNestConversionResult = convertLoopNestHelper(
           *loopOp, builder, moduleTranslation, "omp.distribute.region");
       if (!loopNestConversionResult)
-        return llvm::createStringError("failed to translate omp.loop_nest");
+        return llvm::make_error<PreviouslyReportedError>();
 
       builder.restoreIP(std::get<InsertPointTy>(*loopNestConversionResult));
     } else {

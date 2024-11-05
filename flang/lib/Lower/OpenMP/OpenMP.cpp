@@ -146,6 +146,9 @@ extractOmpDirective(const parser::OpenMPConstruct &ompConstruct) {
                     },
                     [](const parser::OpenMPCancellationPointConstruct &c) {
                       return llvm::omp::OMPD_cancellation_point;
+                    },
+                    [](const parser::OpenMPDepobjConstruct &c) {
+                      return llvm::omp::OMPD_depobj;
                     }},
                 c.u);
           }},

@@ -656,7 +656,7 @@ end subroutine mapType_common_block_members
 !CHECK: %[[ALLOCATABLE_MEMBER_SIZE_CALC_1:.*]] = sub i64 %[[ALLOCATABLE_MEMBER_ADDR_LOAD]], 1
 !CHECK: %[[NESTED_DTYPE_MEMBER_ACCESS:.*]] = getelementptr %_QFmaptype_nested_derived_type_allocaTtop_layer, ptr %[[ALLOCA]], i32 0, i32 6
 !CHECK: %[[NESTED_MEMBER_ACCESS:.*]] = getelementptr %_QFmaptype_nested_derived_type_allocaTmiddle_layer, ptr %[[NESTED_DTYPE_MEMBER_ACCESS]], i32 0, i32 2
-!CHECK: %[[NESTED_MEMBER_BASE_ADDR_ACCESS:.*]] = getelementptr { ptr, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, ptr %20, i32 0, i32 0
+!CHECK: %[[NESTED_MEMBER_BASE_ADDR_ACCESS:.*]] = getelementptr { ptr, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, ptr %[[NESTED_MEMBER_ACCESS]], i32 0, i32 0
 !CHECK: %[[ALLOCATABLE_MEMBER_SIZE_CALC_2:.*]] = sub i64 %[[ALLOCATABLE_MEMBER_SIZE_CALC_1]], 0
 !CHECK: %[[ALLOCATABLE_MEMBER_SIZE_CALC_3:.*]] = add i64 %[[ALLOCATABLE_MEMBER_SIZE_CALC_2]], 1
 !CHECK: %[[ALLOCATABLE_MEMBER_SIZE_CALC_4:.*]] = mul i64 1, %[[ALLOCATABLE_MEMBER_SIZE_CALC_3]]
