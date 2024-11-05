@@ -156,7 +156,7 @@ static inline RT_API_ATTRS void memmove(
 #elif STD_MEMMOVE_UNSUPPORTED
 // Provides alternative implementation for std::memmove(), if
 // it is not supported.
-static inline RT_API_ATTRS void memmove(
+static inline RT_API_ATTRS void *memmove(
     void *dest, const void *src, std::size_t count) {
   char *to{reinterpret_cast<char *>(dest)};
   const char *from{reinterpret_cast<const char *>(src)};
@@ -177,6 +177,7 @@ static inline RT_API_ATTRS void memmove(
       *--to = *--from;
     }
   }
+  return dest;
 }
 #else // !STD_MEMMOVE_UNSUPPORTED
 using std::memmove;
