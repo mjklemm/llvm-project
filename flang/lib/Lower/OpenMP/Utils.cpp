@@ -583,8 +583,6 @@ void insertChildMapInfoIntoParent(
           info.rawInput.getType(),
           /*partialMap=*/true);
 
-      extendBoundsFromMultipleSubscripts(converter, stmtCtx, mapOp,
-                                         indices.second.parentObjList);
       mapOperands.push_back(mapOp);
       mapSyms.push_back(indices.first.sym());
     }

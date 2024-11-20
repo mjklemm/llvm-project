@@ -3242,13 +3242,10 @@ static llvm::omp::OpenMPOffloadMappingFlags mapParentWithMembers(
     auto mapOp = dyn_cast<omp::MapInfoOp>(mapData.MapClause[mapDataIndex]);
     int firstMemberIdx = getMapDataMemberIdx(
         mapData, getFirstOrLastMappedMemberPtr(mapOp, true));
-    int lastMemberIdx = getMapDataMemberIdx(
-        mapData, getFirstOrLastMappedMemberPtr(mapOp, false));
-
-    // NOTE/TODO: Should perhaps use OriginalValue here instead of Pointers to
-    // avoid offset or any manipulations interfering with the calculation.
     lowAddr = builder.CreatePointerCast(mapData.Pointers[firstMemberIdx],
                                         builder.getPtrTy());
+    int lastMemberIdx = getMapDataMemberIdx(
+        mapData, getFirstOrLastMappedMemberPtr(mapOp, false));
     highAddr = builder.CreatePointerCast(
         builder.CreateGEP(mapData.BaseType[lastMemberIdx],
                           mapData.Pointers[lastMemberIdx], builder.getInt64(1)),
@@ -3280,7 +3277,7 @@ static llvm::omp::OpenMPOffloadMappingFlags mapParentWithMembers(
     ompBuilder.setCorrectMemberOfFlag(mapFlag, memberOfFlag);
     combinedInfo.Types.emplace_back(mapFlag);
     combinedInfo.DevicePointers.emplace_back(
-        mapData.DevicePointers[mapDataIndex]);
+        llvm::OpenMPIRBuilder::DeviceInfoTy::None);
     combinedInfo.Names.emplace_back(LLVM::createMappingInformation(
         mapData.MapClause[mapDataIndex]->getLoc(), ompBuilder));
     combinedInfo.BasePointers.emplace_back(mapData.BasePointers[mapDataIndex]);

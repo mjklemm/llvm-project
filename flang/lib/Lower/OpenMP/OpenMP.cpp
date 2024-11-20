@@ -1918,7 +1918,8 @@ static void genLoopOp(lower::AbstractConverter &converter,
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
                            /*useDelayedPrivatization=*/true, &symTable);
-  dsp.processStep1(&loopClauseOps);
+  dsp.processStep1();
+  dsp.processStep2(&loopClauseOps);
 
   mlir::omp::LoopNestOperands loopNestClauseOps;
   llvm::SmallVector<const semantics::Symbol *> iv;
