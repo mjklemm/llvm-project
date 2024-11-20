@@ -1409,14 +1409,14 @@ static void printMapClause(OpAsmPrinter &p, Operation *op,
 
 static ParseResult parseMembersIndex(OpAsmParser &parser,
                                      ArrayAttr &membersIdx) {
-  SmallVector<Attribute, 4> values, memberIdxs;
-  int64_t value;
+  SmallVector<Attribute> values, memberIdxs;
 
   auto parseIndices = [&]() -> ParseResult {
+    int64_t value;
     if (parser.parseInteger(value))
       return failure();
     values.push_back(IntegerAttr::get(parser.getBuilder().getIntegerType(64),
-                                      mlir::APInt(64, value)));
+                                      APInt(64, value, /*isSigned=*/false)));
     return success();
   };
 
@@ -1445,18 +1445,14 @@ static void printMembersIndex(OpAsmPrinter &p, MapInfoOp op,
   if (!membersIdx)
     return;
 
-  for (size_t i = 0; i < membersIdx.getValue().size(); i++) {
-    auto memberIdx = mlir::cast<mlir::ArrayAttr>(membersIdx.getValue()[i]);
+  llvm::interleaveComma(membersIdx, p, [&p](Attribute v) {
     p << "[";
-    for (size_t j = 0; j < memberIdx.getValue().size(); j++) {
-      p << mlir::cast<mlir::IntegerAttr>(memberIdx.getValue()[j]).getInt();
-      if ((j + 1) < memberIdx.getValue().size())
-        p << ",";
-    }
+    auto memberIdx = cast<ArrayAttr>(v);
+    llvm::interleaveComma(memberIdx.getValue(), p, [&p](Attribute v2) {
+      p << cast<IntegerAttr>(v2).getInt();
+    });
     p << "]";
-    if ((i + 1) < membersIdx.getValue().size())
-      p << ", ";
-  }
+  });
 }
 
 static void printCaptureType(OpAsmPrinter &p, Operation *op,
@@ -2057,6 +2053,27 @@ LogicalResult SingleOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// WorkshareOp
+//===----------------------------------------------------------------------===//
+
+void WorkshareOp::build(OpBuilder &builder, OperationState &state,
+                        const WorkshareOperands &clauses) {
+  WorkshareOp::build(builder, state, clauses.nowait);
+}
+
+//===----------------------------------------------------------------------===//
+// WorkshareLoopWrapperOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult WorkshareLoopWrapperOp::verify() {
+  if (!(*this)->getParentOfType<WorkshareOp>())
+    return emitError() << "must be nested in an omp.workshare";
+  if (getNestedWrapper())
+    return emitError() << "cannot be composite";
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LoopWrapperInterface
 //===----------------------------------------------------------------------===//
 
@@ -2086,6 +2103,17 @@ LogicalResult LoopWrapperInterface::verifyImpl() {
 //===----------------------------------------------------------------------===//
 // LoopOp
 //===----------------------------------------------------------------------===//
+
+void LoopOp::build(OpBuilder &builder, OperationState &state,
+                   const LoopOperands &clauses) {
+  MLIRContext *ctx = builder.getContext();
+
+  LoopOp::build(builder, state, clauses.bindKind, clauses.privateVars,
+                makeArrayAttr(ctx, clauses.privateSyms), clauses.order,
+                clauses.orderMod, clauses.reductionVars,
+                makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
+                makeArrayAttr(ctx, clauses.reductionSyms));
+}
 
 LogicalResult LoopOp::verify() {
   return verifyReductionVarList(*this, getReductionSyms(), getReductionVars(),

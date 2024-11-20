@@ -92,7 +92,7 @@ class MapsForPrivatizedSymbolsPass
                           .getElementType()),
         /*varPtrPtr=*/Value{},
         /*members=*/SmallVector<Value>{},
-        /*member_index=*/ArrayAttr{},
+        /*member_index=*/mlir::ArrayAttr{},
         /*bounds=*/ValueRange{},
         builder.getIntegerAttr(builder.getIntegerType(64, /*isSigned=*/false),
                                mapTypeTo),
