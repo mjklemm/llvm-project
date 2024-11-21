@@ -1808,24 +1808,21 @@ convertOmpTaskOp(omp::TaskOp taskOp, llvm::IRBuilderBase &builder,
           splitBB(builder, /*CreateBranch=*/true, "omp.private.copy");
       builder.SetInsertPoint(copyBlock->getFirstNonPHIOrDbgOrAlloca());
     }
-    for (unsigned i = 0; i < privateBlockArgs.size(); ++i) {
-      if (privateDecls[i].getDataSharingType() !=
-          omp::DataSharingClauseType::FirstPrivate)
+    for (auto [decl, mlirVar, llvmVar] :
+         llvm::zip_equal(privateDecls, mlirPrivateVars, llvmPrivateVars)) {
+      if (decl.getDataSharingType() != omp::DataSharingClauseType::FirstPrivate)
         continue;
 
       // copyRegion implements `lhs = rhs`
-      Region &copyRegion = privateDecls[i].getCopyRegion();
+      Region &copyRegion = decl.getCopyRegion();
 
       // map copyRegion rhs arg
-      llvm::Value *nonPrivateVar =
-          moduleTranslation.lookupValue(taskOp.getPrivateVars()[i]);
+      llvm::Value *nonPrivateVar = moduleTranslation.lookupValue(mlirVar);
       assert(nonPrivateVar);
-      moduleTranslation.mapValue(privateDecls[i].getCopyMoldArg(),
-                                 nonPrivateVar);
+      moduleTranslation.mapValue(decl.getCopyMoldArg(), nonPrivateVar);
 
       // map copyRegion lhs arg
-      moduleTranslation.mapValue(privateDecls[i].getCopyPrivateArg(),
-                                 llvmPrivateVars[i]);
+      moduleTranslation.mapValue(decl.getCopyPrivateArg(), llvmVar);
 
       // in-place convert copy region
       builder.SetInsertPoint(builder.GetInsertBlock()->getTerminator());
@@ -2180,24 +2177,21 @@ convertOmpParallel(omp::ParallelOp opInst, llvm::IRBuilderBase &builder,
           splitBB(builder, /*CreateBranch=*/true, "omp.private.copy");
       builder.SetInsertPoint(copyBlock->getFirstNonPHIOrDbgOrAlloca());
     }
-    for (unsigned i = 0; i < privateBlockArgs.size(); ++i) {
-      if (privateDecls[i].getDataSharingType() !=
-          omp::DataSharingClauseType::FirstPrivate)
+    for (auto [decl, mlirVar, llvmVar] :
+         llvm::zip_equal(privateDecls, mlirPrivateVars, llvmPrivateVars)) {
+      if (decl.getDataSharingType() != omp::DataSharingClauseType::FirstPrivate)
         continue;
 
       // copyRegion implements `lhs = rhs`
-      Region &copyRegion = privateDecls[i].getCopyRegion();
+      Region &copyRegion = decl.getCopyRegion();
 
       // map copyRegion rhs arg
-      llvm::Value *nonPrivateVar =
-          moduleTranslation.lookupValue(opInst.getPrivateVars()[i]);
+      llvm::Value *nonPrivateVar = moduleTranslation.lookupValue(mlirVar);
       assert(nonPrivateVar);
-      moduleTranslation.mapValue(privateDecls[i].getCopyMoldArg(),
-                                 nonPrivateVar);
+      moduleTranslation.mapValue(decl.getCopyMoldArg(), nonPrivateVar);
 
       // map copyRegion lhs arg
-      moduleTranslation.mapValue(privateDecls[i].getCopyPrivateArg(),
-                                 llvmPrivateVars[i]);
+      moduleTranslation.mapValue(decl.getCopyPrivateArg(), llvmVar);
 
       // in-place convert copy region
       builder.SetInsertPoint(builder.GetInsertBlock()->getTerminator());
@@ -3063,49 +3057,39 @@ static int getMapDataMemberIdx(MapInfoData &mapData, omp::MapInfoOp memberOp) {
   return std::distance(mapData.MapClause.begin(), res);
 }
 
-static mlir::omp::MapInfoOp
-getFirstOrLastMappedMemberPtr(mlir::omp::MapInfoOp mapInfo, bool first) {
-  mlir::ArrayAttr indexAttr = mapInfo.getMembersIndexAttr();
+static omp::MapInfoOp getFirstOrLastMappedMemberPtr(omp::MapInfoOp mapInfo,
+                                                    bool first) {
+  ArrayAttr indexAttr = mapInfo.getMembersIndexAttr();
   // Only 1 member has been mapped, we can return it.
   if (indexAttr.size() == 1)
-    if (auto mapOp =
-            dyn_cast<omp::MapInfoOp>(mapInfo.getMembers()[0].getDefiningOp()))
-      return mapOp;
+    return cast<omp::MapInfoOp>(mapInfo.getMembers()[0].getDefiningOp());
 
   llvm::SmallVector<size_t> indices(indexAttr.size());
   std::iota(indices.begin(), indices.end(), 0);
 
-  llvm::sort(
-      indices.begin(), indices.end(), [&](const size_t a, const size_t b) {
-        auto memberIndicesA = mlir::cast<mlir::ArrayAttr>(indexAttr[a]);
-        auto memberIndicesB = mlir::cast<mlir::ArrayAttr>(indexAttr[b]);
+  llvm::sort(indices.begin(), indices.end(),
+             [&](const size_t a, const size_t b) {
+               auto memberIndicesA = cast<ArrayAttr>(indexAttr[a]);
+               auto memberIndicesB = cast<ArrayAttr>(indexAttr[b]);
+               for (const auto it : llvm::zip(memberIndicesA, memberIndicesB)) {
+                 int64_t aIndex = cast<IntegerAttr>(std::get<0>(it)).getInt();
+                 int64_t bIndex = cast<IntegerAttr>(std::get<1>(it)).getInt();
 
-        size_t smallestMember = memberIndicesA.size() < memberIndicesB.size()
-                                    ? memberIndicesA.size()
-                                    : memberIndicesB.size();
-        for (size_t i = 0; i < smallestMember; ++i) {
-          int64_t aIndex =
-              mlir::cast<mlir::IntegerAttr>(memberIndicesA.getValue()[i])
-                  .getInt();
-          int64_t bIndex =
-              mlir::cast<mlir::IntegerAttr>(memberIndicesB.getValue()[i])
-                  .getInt();
+                 if (aIndex == bIndex)
+                   continue;
 
-          if (aIndex == bIndex)
-            continue;
+                 if (aIndex < bIndex)
+                   return first;
 
-          if (aIndex < bIndex)
-            return first;
+                 if (aIndex > bIndex)
+                   return !first;
+               }
 
-          if (aIndex > bIndex)
-            return !first;
-        }
-
-        // Iterated up until the end of the smallest member and
-        // they were found to be equal up to that point, so select
-        // the member with the lowest index count, so the "parent"
-        return memberIndicesA.size() < memberIndicesB.size();
-      });
+               // Iterated the up until the end of the smallest member and
+               // they were found to be equal up to that point, so select
+               // the member with the lowest index count, so the "parent"
+               return memberIndicesA.size() < memberIndicesB.size();
+             });
 
   return llvm::cast<omp::MapInfoOp>(
       mapInfo.getMembers()[indices.front()].getDefiningOp());
@@ -3258,13 +3242,10 @@ static llvm::omp::OpenMPOffloadMappingFlags mapParentWithMembers(
     auto mapOp = dyn_cast<omp::MapInfoOp>(mapData.MapClause[mapDataIndex]);
     int firstMemberIdx = getMapDataMemberIdx(
         mapData, getFirstOrLastMappedMemberPtr(mapOp, true));
-    int lastMemberIdx = getMapDataMemberIdx(
-        mapData, getFirstOrLastMappedMemberPtr(mapOp, false));
-
-    // NOTE/TODO: Should perhaps use OriginalValue here instead of Pointers to
-    // avoid offset or any manipulations interfering with the calculation.
     lowAddr = builder.CreatePointerCast(mapData.Pointers[firstMemberIdx],
                                         builder.getPtrTy());
+    int lastMemberIdx = getMapDataMemberIdx(
+        mapData, getFirstOrLastMappedMemberPtr(mapOp, false));
     highAddr = builder.CreatePointerCast(
         builder.CreateGEP(mapData.BaseType[lastMemberIdx],
                           mapData.Pointers[lastMemberIdx], builder.getInt64(1)),
@@ -3296,7 +3277,7 @@ static llvm::omp::OpenMPOffloadMappingFlags mapParentWithMembers(
     ompBuilder.setCorrectMemberOfFlag(mapFlag, memberOfFlag);
     combinedInfo.Types.emplace_back(mapFlag);
     combinedInfo.DevicePointers.emplace_back(
-        mapData.DevicePointers[mapDataIndex]);
+        llvm::OpenMPIRBuilder::DeviceInfoTy::None);
     combinedInfo.Names.emplace_back(LLVM::createMappingInformation(
         mapData.MapClause[mapDataIndex]->getLoc(), ompBuilder));
     combinedInfo.BasePointers.emplace_back(mapData.BasePointers[mapDataIndex]);
@@ -3344,6 +3325,13 @@ static void processMapMembersWithParent(
 
     assert(memberDataIdx >= 0 && "could not find mapped member of structure");
 
+    // If we're currently mapping a pointer to a block of data, we must
+    // initially map the pointer, and then attatch/bind the data with a
+    // subsequent map to the pointer. This segment of code generates the
+    // pointer mapping, which can in certain cases be optimised out as Clang
+    // currently does in its lowering. However, for the moment we do not do so,
+    // in part as we currently have substantially less information on the data
+    // being mapped at this stage.
     if (checkIfPointerMap(memberClause)) {
       auto mapFlag = llvm::omp::OpenMPOffloadMappingFlags(
           memberClause.getMapType().value());
@@ -3377,14 +3365,10 @@ static void processMapMembersWithParent(
         llvm::OpenMPIRBuilder::DeviceInfoTy::None);
     combinedInfo.Names.emplace_back(
         LLVM::createMappingInformation(memberClause.getLoc(), ompBuilder));
-
-    if (checkIfPointerMap(memberClause))
-      combinedInfo.BasePointers.emplace_back(
-          mapData.BasePointers[memberDataIdx]);
-    else
-      combinedInfo.BasePointers.emplace_back(
-          mapData.BasePointers[mapDataIndex]);
-
+    uint64_t basePointerIndex =
+        checkIfPointerMap(memberClause) ? memberDataIdx : mapDataIndex;
+    combinedInfo.BasePointers.emplace_back(
+        mapData.BasePointers[basePointerIndex]);
     combinedInfo.Pointers.emplace_back(mapData.Pointers[memberDataIdx]);
     combinedInfo.Sizes.emplace_back(mapData.Sizes[memberDataIdx]);
   }
@@ -3703,23 +3687,32 @@ convertOmpTargetData(Operation *op, llvm::IRBuilderBase &builder,
       [&moduleTranslation](
           llvm::OpenMPIRBuilder::DeviceInfoTy type,
           llvm::ArrayRef<BlockArgument> blockArgs,
-          llvm::OpenMPIRBuilder::MapValuesArrayTy &basePointers,
-          llvm::OpenMPIRBuilder::MapDeviceInfoArrayTy &devicePointers,
+          llvm::SmallVectorImpl<Value> &useDeviceVars, MapInfoData &mapInfoData,
           llvm::function_ref<llvm::Value *(llvm::Value *)> mapper = nullptr) {
-        // Get a range to iterate over `basePointers` after filtering based on
-        // `devicePointers` and the given device info type.
-        auto basePtrRange = llvm::map_range(
-            llvm::make_filter_range(
-                llvm::zip_equal(basePointers, devicePointers),
-                [type](auto x) { return std::get<1>(x) == type; }),
-            [](auto x) { return std::get<0>(x); });
+        for (auto [arg, useDevVar] :
+             llvm::zip_equal(blockArgs, useDeviceVars)) {
 
-        // Map block arguments to the corresponding processed base pointer. If
-        // a mapper is not specified, map the block argument to the base pointer
-        // directly.
-        for (auto [arg, basePointer] : llvm::zip_equal(blockArgs, basePtrRange))
-          moduleTranslation.mapValue(arg, mapper ? mapper(basePointer)
-                                                 : basePointer);
+          auto getMapBasePtr = [](omp::MapInfoOp mapInfoOp) {
+            return mapInfoOp.getVarPtrPtr() ? mapInfoOp.getVarPtrPtr()
+                                            : mapInfoOp.getVarPtr();
+          };
+
+          auto useDevMap = cast<omp::MapInfoOp>(useDevVar.getDefiningOp());
+          for (auto [mapClause, devicePointer, basePointer] : llvm::zip_equal(
+                   mapInfoData.MapClause, mapInfoData.DevicePointers,
+                   mapInfoData.BasePointers)) {
+            auto mapOp = cast<omp::MapInfoOp>(mapClause);
+            if (getMapBasePtr(mapOp) != getMapBasePtr(useDevMap) ||
+                devicePointer != type)
+              continue;
+
+            if (llvm::Value *devPtrInfoMap =
+                    mapper ? mapper(basePointer) : basePointer) {
+              moduleTranslation.mapValue(arg, devPtrInfoMap);
+              break;
+            }
+          }
+        }
       };
 
   using BodyGenTy = llvm::OpenMPIRBuilder::BodyGenTy;
@@ -3737,16 +3730,17 @@ convertOmpTargetData(Operation *op, llvm::IRBuilderBase &builder,
 
         mapUseDevice(llvm::OpenMPIRBuilder::DeviceInfoTy::Address,
                      blockArgIface.getUseDeviceAddrBlockArgs(),
-                     combinedInfo.BasePointers, combinedInfo.DevicePointers,
+                     useDeviceAddrVars, mapData,
                      [&](llvm::Value *basePointer) -> llvm::Value * {
+                       if (!info.DevicePtrInfoMap[basePointer].second)
+                         return nullptr;
                        return builder.CreateLoad(
                            builder.getPtrTy(),
                            info.DevicePtrInfoMap[basePointer].second);
                      });
         mapUseDevice(llvm::OpenMPIRBuilder::DeviceInfoTy::Pointer,
-                     blockArgIface.getUseDevicePtrBlockArgs(),
-                     combinedInfo.BasePointers, combinedInfo.DevicePointers,
-                     [&](llvm::Value *basePointer) {
+                     blockArgIface.getUseDevicePtrBlockArgs(), useDevicePtrVars,
+                     mapData, [&](llvm::Value *basePointer) {
                        return info.DevicePtrInfoMap[basePointer].second;
                      });
 
@@ -3772,10 +3766,10 @@ convertOmpTargetData(Operation *op, llvm::IRBuilderBase &builder,
         if (ompBuilder->Config.IsTargetDevice.value_or(false)) {
           mapUseDevice(llvm::OpenMPIRBuilder::DeviceInfoTy::Address,
                        blockArgIface.getUseDeviceAddrBlockArgs(),
-                       mapData.BasePointers, mapData.DevicePointers);
+                       useDeviceAddrVars, mapData);
           mapUseDevice(llvm::OpenMPIRBuilder::DeviceInfoTy::Pointer,
                        blockArgIface.getUseDevicePtrBlockArgs(),
-                       mapData.BasePointers, mapData.DevicePointers);
+                       useDevicePtrVars, mapData);
         }
 
         SmallVector<llvm::PHINode *> phis;
@@ -4544,6 +4538,7 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
     if (!mapData.IsDeclareTarget[i] && !mapData.IsAMember[i])
       kernelInput.push_back(mapData.OriginalValue[i]);
   }
+
   SmallVector<llvm::OpenMPIRBuilder::DependData> dds;
   buildDependData(targetOp.getDependKinds(), targetOp.getDependVars(),
                   moduleTranslation, dds);

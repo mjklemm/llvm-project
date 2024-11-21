@@ -98,22 +98,33 @@ struct OmpMapParentAndMemberData {
   // Placement of the member in the member vector.
   llvm::SmallVector<mlir::omp::MapInfoOp> memberMap;
 
-  // The list of associated parent object symbols. used to track data we
-  // need for various parent processing tasks when performing member
-  // mapping, the main example currently being re-evaluating the parent
-  // maps bounds at the final step of map processing, where we need to
-  // keep a hold of all of the omp::Object's which contain array bounds
-  // for the respective parent to calculate the final bounds from.
-  //
-  // As an Example:
-  //
-  // !$omp target map(tofrom: alloca_dtype_arr(2)%array_i,
-  // alloca_dtype_arr(3)%array_i)
-  //
-  // parentObjList will contain alloca_dtype_arr(3) as well as
-  // alloca_dtype_arr(2).
-  ObjectList parentObjList;
+  bool isDuplicateMemberMapInfo(llvm::SmallVectorImpl<int64_t> &memberIndices) {
+    return llvm::find_if(memberPlacementIndices, [&](auto &memberData) {
+             return llvm::equal(memberIndices, memberData);
+           }) != memberPlacementIndices.end();
+  }
+
+  void addChildIndexAndMapToParent(const omp::Object &object,
+                                   mlir::omp::MapInfoOp &mapOp,
+                                   semantics::SemanticsContext &semaCtx);
 };
+
+mlir::omp::MapInfoOp
+createMapInfoOp(fir::FirOpBuilder &builder, mlir::Location loc,
+                mlir::Value baseAddr, mlir::Value varPtrPtr,
+                llvm::StringRef name, llvm::ArrayRef<mlir::Value> bounds,
+                llvm::ArrayRef<mlir::Value> members,
+                mlir::ArrayAttr membersIndex, uint64_t mapType,
+                mlir::omp::VariableCaptureKind mapCaptureType, mlir::Type retTy,
+                bool partialMap = false);
+
+void insertChildMapInfoIntoParent(
+    Fortran::lower::AbstractConverter &converter,
+    Fortran::semantics::SemanticsContext &semaCtx,
+    Fortran::lower::StatementContext &stmtCtx,
+    std::map<Object, OmpMapParentAndMemberData> &parentMemberIndices,
+    llvm::SmallVectorImpl<mlir::Value> &mapOperands,
+    llvm::SmallVectorImpl<const semantics::Symbol *> &mapSyms);
 
 void generateMemberPlacementIndices(
     const Object &object, llvm::SmallVectorImpl<int64_t> &indices,
@@ -122,38 +133,15 @@ void generateMemberPlacementIndices(
 bool isMemberOrParentAllocatableOrPointer(
     const Object &object, Fortran::semantics::SemanticsContext &semaCtx);
 
-bool isDuplicateMemberMapInfo(OmpMapParentAndMemberData &parentMembers,
-                              llvm::SmallVectorImpl<int64_t> &memberIndices);
-
-mlir::omp::MapInfoOp createMapInfoOp(
-    fir::FirOpBuilder &builder, mlir::Location loc, mlir::Value baseAddr,
-    mlir::Value varPtrPtr, std::string name, mlir::ArrayRef<mlir::Value> bounds,
-    mlir::ArrayRef<mlir::Value> members, mlir::ArrayAttr membersIndex,
-    uint64_t mapType, mlir::omp::VariableCaptureKind mapCaptureType,
-    mlir::Type retTy, bool partialMap = false);
-
 mlir::Value createParentSymAndGenIntermediateMaps(
     mlir::Location clauseLocation, Fortran::lower::AbstractConverter &converter,
     semantics::SemanticsContext &semaCtx, lower::StatementContext &stmtCtx,
-    omp::ObjectList &objectList, llvm::SmallVector<int64_t> &indices,
-    OmpMapParentAndMemberData &parentMemberIndices, std::string asFortran,
+    omp::ObjectList &objectList, llvm::SmallVectorImpl<int64_t> &indices,
+    OmpMapParentAndMemberData &parentMemberIndices, llvm::StringRef asFortran,
     llvm::omp::OpenMPOffloadMappingFlags mapTypeBits);
 
-omp::ObjectList gatherObjects(omp::Object obj,
-                              semantics::SemanticsContext &semaCtx);
-
-void addChildIndexAndMapToParent(const omp::Object &object,
-                                 OmpMapParentAndMemberData &parentMemberIndices,
-                                 mlir::omp::MapInfoOp &mapOp,
-                                 semantics::SemanticsContext &semaCtx);
-
-void insertChildMapInfoIntoParent(
-    Fortran::lower::AbstractConverter &converter,
-    Fortran::semantics::SemanticsContext &semaCtx,
-    Fortran::lower::StatementContext &stmtCtx,
-    std::map<Object, OmpMapParentAndMemberData> &parentMemberIndices,
-    llvm::SmallVectorImpl<mlir::Value> &mapOperands,
-    llvm::SmallVectorImpl<const Fortran::semantics::Symbol *> &mapSymbols);
+omp::ObjectList gatherObjectsOf(omp::Object derivedTypeMember,
+                                semantics::SemanticsContext &semaCtx);
 
 mlir::Type getLoopVarType(lower::AbstractConverter &converter,
                           std::size_t loopVarTypeSize);
