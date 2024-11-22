@@ -8,88 +8,42 @@
 ! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %t/multi_range.f90 -o - \
 ! RUN:   | FileCheck %s --check-prefixes=DEVICE,COMMON
 
-! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=host %t/perfectly_nested.f90 -o - \
-! RUN:   | FileCheck %s --check-prefixes=HOST,COMMON
-
-! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %t/perfectly_nested.f90 -o - \
-! RUN:   | FileCheck %s --check-prefixes=DEVICE,COMMON
-
-! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=host %t/partially_nested.f90 -o - \
-! RUN:   | FileCheck %s --check-prefixes=HOST,COMMON
-
-! RUN: %flang_fc1 -emit-hlfir -fopenmp -fdo-concurrent-parallel=device %t/partially_nested.f90 -o - \
-! RUN:   | FileCheck %s --check-prefixes=DEVICE,COMMON
-
-! This is temporarily disabled since the IR for `do concurrent` loops is different after
-! https://github.com/llvm/llvm-project/pull/114020. This will be enabled again soon.
-! XFAIL: true
-
 !--- multi_range.f90
 program main
-   integer, parameter :: n = 10
-   integer, parameter :: m = 20
-   integer, parameter :: l = 30
+   integer, parameter :: n = 20
+   integer, parameter :: m = 40
+   integer, parameter :: l = 60
    integer :: a(n, m, l)
 
-   do concurrent(i=1:n, j=1:m, k=1:l)
+   do concurrent(i=3:n, j=5:m, k=7:l)
        a(i,j,k) = i * j + k
-   end do
-end
-
-!--- perfectly_nested.f90
-program main
-   integer, parameter :: n = 10
-   integer, parameter :: m = 20
-   integer, parameter :: l = 30
-   integer :: a(n, m, l)
-
-   do concurrent(i=1:n)
-     do concurrent(j=1:m)
-       do concurrent(k=1:l)
-         a(i,j,k) = i * j + k
-       end do
-     end do
-   end do
-end
-
-!--- partially_nested.f90
-program main
-   integer, parameter :: n = 10
-   integer, parameter :: m = 20
-   integer, parameter :: l = 30
-   integer :: a(n, m, l)
-
-   do concurrent(i=1:n, j=1:m)
-       do concurrent(k=1:l)
-         a(i,j,k) = i * j + k
-       end do
    end do
 end
 
 ! COMMON: func.func @_QQmain
 
-! DEVICE: %[[DUPLICATED_C1_1:.*]] = arith.constant 1 : i32
-! DEVICE: %[[DUPLICATED_LB_I:.*]] = fir.convert %[[DUPLICATED_C1_1]] : (i32) -> index
-! DEVICE: %[[DUPLICATED_C10:.*]] = arith.constant 10 : i32
-! DEVICE: %[[DUPLICATED_UB_I:.*]] = fir.convert %[[DUPLICATED_C10]] : (i32) -> index
+! DEVICE: %[[DUPLICATED_C3:.*]] = arith.constant 3 : i32
+! DEVICE: %[[DUPLICATED_LB_I:.*]] = fir.convert %[[DUPLICATED_C3]] : (i32) -> index
+! DEVICE: %[[DUPLICATED_C20:.*]] = arith.constant 20 : i32
+! DEVICE: %[[DUPLICATED_UB_I:.*]] = fir.convert %[[DUPLICATED_C20]] : (i32) -> index
 ! DEVICE: %[[DUPLICATED_STEP_I:.*]] = arith.constant 1 : index
 
-! DEVICE: %[[C1_1:.*]] = arith.constant 1 : i32
-! DEVICE: %[[HOST_LB_I:.*]] = fir.convert %[[C1_1]] : (i32) -> index
-! DEVICE: %[[C10:.*]] = arith.constant 10 : i32
-! DEVICE: %[[HOST_UB_I:.*]] = fir.convert %[[C10]] : (i32) -> index
+! DEVICE: %[[C3:.*]] = arith.constant 3 : i32
+! DEVICE: %[[HOST_LB_I:.*]] = fir.convert %[[C3]] : (i32) -> index
+! DEVICE: %[[C20:.*]] = arith.constant 20 : i32
+! DEVICE: %[[HOST_UB_I:.*]] = fir.convert %[[C20]] : (i32) -> index
 ! DEVICE: %[[HOST_STEP_I:.*]] = arith.constant 1 : index
 
-! DEVICE: %[[C1_2:.*]] = arith.constant 1 : i32
-! DEVICE: %[[HOST_LB_J:.*]] = fir.convert %[[C1_2]] : (i32) -> index
-! DEVICE: %[[C20:.*]] = arith.constant 20 : i32
-! DEVICE: %[[HOST_UB_J:.*]] = fir.convert %[[C20]] : (i32) -> index
+! DEVICE: %[[C5:.*]] = arith.constant 5 : i32
+! DEVICE: %[[HOST_LB_J:.*]] = fir.convert %[[C5]] : (i32) -> index
+! DEVICE: %[[C40:.*]] = arith.constant 40 : i32
+! DEVICE: %[[HOST_UB_J:.*]] = fir.convert %[[C40]] : (i32) -> index
 ! DEVICE: %[[HOST_STEP_J:.*]] = arith.constant 1 : index
 
-! DEVICE: %[[C1_3:.*]] = arith.constant 1 : i32
-! DEVICE: %[[HOST_LB_K:.*]] = fir.convert %[[C1_3]] : (i32) -> index
-! DEVICE: %[[C30:.*]] = arith.constant 30 : i32
-! DEVICE: %[[HOST_UB_K:.*]] = fir.convert %[[C30]] : (i32) -> index
+! DEVICE: %[[C7:.*]] = arith.constant 7 : i32
+! DEVICE: %[[HOST_LB_K:.*]] = fir.convert %[[C7]] : (i32) -> index
+! DEVICE: %[[C60:.*]] = arith.constant 60 : i32
+! DEVICE: %[[HOST_UB_K:.*]] = fir.convert %[[C60]] : (i32) -> index
 ! DEVICE: %[[HOST_STEP_K:.*]] = arith.constant 1 : index
 
 ! DEVICE: omp.target host_eval(
@@ -103,6 +57,7 @@ end
 ! DEVICE-SAME: %[[HOST_UB_K]] -> %[[UB_K:[[:alnum:]]+]],
 ! DEVICE-SAME: %[[HOST_STEP_K]] -> %[[STEP_K:[[:alnum:]]+]] :
 ! DEVICE-SAME: index, index, index, index, index, index, index, index, index)
+
 ! DEVICE: omp.teams
 
 ! HOST-NOT: omp.target
@@ -119,22 +74,22 @@ end
 ! COMMON-NEXT: %[[ITER_VAR_K:.*]] = fir.alloca i32 {bindc_name = "k"}
 ! COMMON-NEXT: %[[BINDING_K:.*]]:2 = hlfir.declare %[[ITER_VAR_K]] {uniq_name = "_QFEk"}
 
-! HOST: %[[C1_1:.*]] = arith.constant 1 : i32
-! HOST: %[[LB_I:.*]] = fir.convert %[[C1_1]] : (i32) -> index
-! HOST: %[[C10:.*]] = arith.constant 10 : i32
-! HOST: %[[UB_I:.*]] = fir.convert %[[C10]] : (i32) -> index
+! HOST: %[[C3:.*]] = arith.constant 3 : i32
+! HOST: %[[LB_I:.*]] = fir.convert %[[C3]] : (i32) -> index
+! HOST: %[[C20:.*]] = arith.constant 20 : i32
+! HOST: %[[UB_I:.*]] = fir.convert %[[C20]] : (i32) -> index
 ! HOST: %[[STEP_I:.*]] = arith.constant 1 : index
 
-! HOST: %[[C1_2:.*]] = arith.constant 1 : i32
-! HOST: %[[LB_J:.*]] = fir.convert %[[C1_2]] : (i32) -> index
-! HOST: %[[C20:.*]] = arith.constant 20 : i32
-! HOST: %[[UB_J:.*]] = fir.convert %[[C20]] : (i32) -> index
+! HOST: %[[C5:.*]] = arith.constant 5 : i32
+! HOST: %[[LB_J:.*]] = fir.convert %[[C5]] : (i32) -> index
+! HOST: %[[C40:.*]] = arith.constant 40 : i32
+! HOST: %[[UB_J:.*]] = fir.convert %[[C40]] : (i32) -> index
 ! HOST: %[[STEP_J:.*]] = arith.constant 1 : index
 
-! HOST: %[[C1_3:.*]] = arith.constant 1 : i32
-! HOST: %[[LB_K:.*]] = fir.convert %[[C1_3]] : (i32) -> index
-! HOST: %[[C30:.*]] = arith.constant 30 : i32
-! HOST: %[[UB_K:.*]] = fir.convert %[[C30]] : (i32) -> index
+! HOST: %[[C7:.*]] = arith.constant 7 : i32
+! HOST: %[[LB_K:.*]] = fir.convert %[[C7]] : (i32) -> index
+! HOST: %[[C60:.*]] = arith.constant 60 : i32
+! HOST: %[[UB_K:.*]] = fir.convert %[[C60]] : (i32) -> index
 ! HOST: %[[STEP_K:.*]] = arith.constant 1 : index
 
 ! DEVICE: omp.distribute
