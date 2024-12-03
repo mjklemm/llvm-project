@@ -169,8 +169,8 @@ static LogicalResult checkImplementationStatus(Operation &op) {
       result = todo("device");
   };
   auto checkDistSchedule = [&todo](auto op, LogicalResult &result) {
-    if (op.getDistScheduleStatic() || op.getDistScheduleChunkSize())
-      result = todo("dist_schedule");
+    if (op.getDistScheduleChunkSize())
+      result = todo("dist_schedule with chunk_size");
   };
   auto checkHasDeviceAddr = [&todo](auto op, LogicalResult &result) {
     if (!op.getHasDeviceAddrVars().empty())
