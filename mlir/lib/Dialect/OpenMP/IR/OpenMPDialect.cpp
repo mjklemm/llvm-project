@@ -487,9 +487,11 @@ struct PrivateParseArgs {
   llvm::SmallVectorImpl<OpAsmParser::UnresolvedOperand> &vars;
   llvm::SmallVectorImpl<Type> &types;
   ArrayAttr &syms;
+  DenseI64ArrayAttr *mapIndices;
   PrivateParseArgs(SmallVectorImpl<OpAsmParser::UnresolvedOperand> &vars,
-                   SmallVectorImpl<Type> &types, ArrayAttr &syms)
-      : vars(vars), types(types), syms(syms) {}
+                   SmallVectorImpl<Type> &types, ArrayAttr &syms,
+                   DenseI64ArrayAttr *mapIndices = nullptr)
+      : vars(vars), types(types), syms(syms), mapIndices(mapIndices) {}
 };
 struct ReductionParseArgs {
   SmallVectorImpl<OpAsmParser::UnresolvedOperand> &vars;
@@ -518,8 +520,10 @@ static ParseResult parseClauseWithRegionArgs(
     SmallVectorImpl<OpAsmParser::UnresolvedOperand> &operands,
     SmallVectorImpl<Type> &types,
     SmallVectorImpl<OpAsmParser::Argument> &regionPrivateArgs,
-    ArrayAttr *symbols = nullptr, DenseBoolArrayAttr *byref = nullptr) {
+    ArrayAttr *symbols = nullptr, DenseI64ArrayAttr *mapIndices = nullptr,
+    DenseBoolArrayAttr *byref = nullptr) {
   SmallVector<SymbolRefAttr> symbolVec;
+  SmallVector<int64_t> mapIndicesVec;
   SmallVector<bool> isByRefVec;
   unsigned regionArgOffset = regionPrivateArgs.size();
 
@@ -538,6 +542,16 @@ static ParseResult parseClauseWithRegionArgs(
             parser.parseArrow() ||
             parser.parseArgument(regionPrivateArgs.emplace_back()))
           return failure();
+
+        if (mapIndices) {
+          if (parser.parseOptionalLSquare().succeeded()) {
+            if (parser.parseKeyword("map_idx") || parser.parseEqual() ||
+                parser.parseInteger(mapIndicesVec.emplace_back()) ||
+                parser.parseRSquare())
+              return failure();
+          } else
+            mapIndicesVec.push_back(-1);
+        }
 
         return success();
       }))
@@ -572,6 +586,10 @@ static ParseResult parseClauseWithRegionArgs(
     *symbols = ArrayAttr::get(parser.getContext(), symbolAttrs);
   }
 
+  if (!mapIndicesVec.empty())
+    *mapIndices =
+        mlir::DenseI64ArrayAttr::get(parser.getContext(), mapIndicesVec);
+
   if (byref)
     *byref = makeDenseBoolArrayAttr(parser.getContext(), isByRefVec);
 
@@ -596,14 +614,14 @@ static ParseResult parseBlockArgClause(
 static ParseResult parseBlockArgClause(
     OpAsmParser &parser,
     llvm::SmallVectorImpl<OpAsmParser::Argument> &entryBlockArgs,
-    StringRef keyword, std::optional<PrivateParseArgs> reductionArgs) {
+    StringRef keyword, std::optional<PrivateParseArgs> privateArgs) {
   if (succeeded(parser.parseOptionalKeyword(keyword))) {
-    if (!reductionArgs)
+    if (!privateArgs)
       return failure();
 
-    if (failed(parseClauseWithRegionArgs(parser, reductionArgs->vars,
-                                         reductionArgs->types, entryBlockArgs,
-                                         &reductionArgs->syms)))
+    if (failed(parseClauseWithRegionArgs(
+            parser, privateArgs->vars, privateArgs->types, entryBlockArgs,
+            &privateArgs->syms, privateArgs->mapIndices)))
       return failure();
   }
   return success();
@@ -619,7 +637,8 @@ static ParseResult parseBlockArgClause(
 
     if (failed(parseClauseWithRegionArgs(
             parser, reductionArgs->vars, reductionArgs->types, entryBlockArgs,
-            &reductionArgs->syms, &reductionArgs->byref)))
+            &reductionArgs->syms, /*mapIndices=*/nullptr,
+            &reductionArgs->byref)))
       return failure();
   }
   return success();
@@ -682,13 +701,15 @@ static ParseResult parseHostEvalInReductionMapPrivateRegion(
     SmallVectorImpl<OpAsmParser::UnresolvedOperand> &mapVars,
     SmallVectorImpl<Type> &mapTypes,
     llvm::SmallVectorImpl<OpAsmParser::UnresolvedOperand> &privateVars,
-    llvm::SmallVectorImpl<Type> &privateTypes, ArrayAttr &privateSyms) {
+    llvm::SmallVectorImpl<Type> &privateTypes, ArrayAttr &privateSyms,
+    DenseI64ArrayAttr &privateMaps) {
   AllRegionParseArgs args;
   args.hostEvalArgs.emplace(hostEvalVars, hostEvalTypes);
   args.inReductionArgs.emplace(inReductionVars, inReductionTypes,
                                inReductionByref, inReductionSyms);
   args.mapArgs.emplace(mapVars, mapTypes);
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms,
+                           &privateMaps);
   return parseBlockArgRegion(parser, region, args);
 }
 
@@ -785,8 +806,10 @@ struct PrivatePrintArgs {
   ValueRange vars;
   TypeRange types;
   ArrayAttr syms;
-  PrivatePrintArgs(ValueRange vars, TypeRange types, ArrayAttr syms)
-      : vars(vars), types(types), syms(syms) {}
+  DenseI64ArrayAttr mapIndices;
+  PrivatePrintArgs(ValueRange vars, TypeRange types, ArrayAttr syms,
+                   DenseI64ArrayAttr mapIndices)
+      : vars(vars), types(types), syms(syms), mapIndices(mapIndices) {}
 };
 struct ReductionPrintArgs {
   ValueRange vars;
@@ -814,6 +837,7 @@ static void printClauseWithRegionArgs(OpAsmPrinter &p, MLIRContext *ctx,
                                       ValueRange argsSubrange,
                                       ValueRange operands, TypeRange types,
                                       ArrayAttr symbols = nullptr,
+                                      DenseI64ArrayAttr mapIndices = nullptr,
                                       DenseBoolArrayAttr byref = nullptr) {
   if (argsSubrange.empty())
     return;
@@ -825,21 +849,31 @@ static void printClauseWithRegionArgs(OpAsmPrinter &p, MLIRContext *ctx,
     symbols = ArrayAttr::get(ctx, values);
   }
 
+  if (!mapIndices) {
+    llvm::SmallVector<int64_t> values(operands.size(), -1);
+    mapIndices = DenseI64ArrayAttr::get(ctx, values);
+  }
+
   if (!byref) {
     mlir::SmallVector<bool> values(operands.size(), false);
     byref = DenseBoolArrayAttr::get(ctx, values);
   }
 
-  llvm::interleaveComma(
-      llvm::zip_equal(operands, argsSubrange, symbols, byref.asArrayRef()), p,
-      [&p](auto t) {
-        auto [op, arg, sym, isByRef] = t;
-        if (isByRef)
-          p << "byref ";
-        if (sym)
-          p << sym << " ";
-        p << op << " -> " << arg;
-      });
+  llvm::interleaveComma(llvm::zip_equal(operands, argsSubrange, symbols,
+                                        mapIndices.asArrayRef(),
+                                        byref.asArrayRef()),
+                        p, [&p](auto t) {
+                          auto [op, arg, sym, map, isByRef] = t;
+                          if (isByRef)
+                            p << "byref ";
+                          if (sym)
+                            p << sym << " ";
+
+                          p << op << " -> " << arg;
+
+                          if (map != -1)
+                            p << " [map_idx=" << map << "]";
+                        });
   p << " : ";
   llvm::interleaveComma(types, p);
   p << ") ";
@@ -859,7 +893,7 @@ static void printBlockArgClause(OpAsmPrinter &p, MLIRContext *ctx,
   if (privateArgs)
     printClauseWithRegionArgs(p, ctx, clauseName, argsSubrange,
                               privateArgs->vars, privateArgs->types,
-                              privateArgs->syms);
+                              privateArgs->syms, privateArgs->mapIndices);
 }
 
 static void
@@ -869,7 +903,8 @@ printBlockArgClause(OpAsmPrinter &p, MLIRContext *ctx, StringRef clauseName,
   if (reductionArgs)
     printClauseWithRegionArgs(p, ctx, clauseName, argsSubrange,
                               reductionArgs->vars, reductionArgs->types,
-                              reductionArgs->syms, reductionArgs->byref);
+                              reductionArgs->syms, /*mapIndices=*/nullptr,
+                              reductionArgs->byref);
 }
 
 static void printBlockArgRegion(OpAsmPrinter &p, Operation *op, Region &region,
@@ -904,13 +939,14 @@ static void printHostEvalInReductionMapPrivateRegion(
     TypeRange hostEvalTypes, ValueRange inReductionVars,
     TypeRange inReductionTypes, DenseBoolArrayAttr inReductionByref,
     ArrayAttr inReductionSyms, ValueRange mapVars, TypeRange mapTypes,
-    ValueRange privateVars, TypeRange privateTypes, ArrayAttr privateSyms) {
+    ValueRange privateVars, TypeRange privateTypes, ArrayAttr privateSyms,
+    DenseI64ArrayAttr privateMaps) {
   AllRegionPrintArgs args;
   args.hostEvalArgs.emplace(hostEvalVars, hostEvalTypes);
   args.inReductionArgs.emplace(inReductionVars, inReductionTypes,
                                inReductionByref, inReductionSyms);
   args.mapArgs.emplace(mapVars, mapTypes);
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms, privateMaps);
   printBlockArgRegion(p, op, region, args);
 }
 
@@ -922,7 +958,8 @@ static void printInReductionPrivateRegion(
   AllRegionPrintArgs args;
   args.inReductionArgs.emplace(inReductionVars, inReductionTypes,
                                inReductionByref, inReductionSyms);
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms,
+                           /*mapIndices=*/nullptr);
   printBlockArgRegion(p, op, region, args);
 }
 
@@ -935,7 +972,8 @@ static void printInReductionPrivateReductionRegion(
   AllRegionPrintArgs args;
   args.inReductionArgs.emplace(inReductionVars, inReductionTypes,
                                inReductionByref, inReductionSyms);
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms,
+                           /*mapIndices=*/nullptr);
   args.reductionArgs.emplace(reductionVars, reductionTypes, reductionByref,
                              reductionSyms);
   printBlockArgRegion(p, op, region, args);
@@ -945,7 +983,8 @@ static void printPrivateRegion(OpAsmPrinter &p, Operation *op, Region &region,
                                ValueRange privateVars, TypeRange privateTypes,
                                ArrayAttr privateSyms) {
   AllRegionPrintArgs args;
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms,
+                           /*mapIndices=*/nullptr);
   printBlockArgRegion(p, op, region, args);
 }
 
@@ -955,7 +994,8 @@ static void printPrivateReductionRegion(
     TypeRange reductionTypes, DenseBoolArrayAttr reductionByref,
     ArrayAttr reductionSyms) {
   AllRegionPrintArgs args;
-  args.privateArgs.emplace(privateVars, privateTypes, privateSyms);
+  args.privateArgs.emplace(privateVars, privateTypes, privateSyms,
+                           /*mapIndices=*/nullptr);
   args.reductionArgs.emplace(reductionVars, reductionTypes, reductionByref,
                              reductionSyms);
   printBlockArgRegion(p, op, region, args);
@@ -1574,6 +1614,24 @@ static LogicalResult verifyMapClause(Operation *op, OperandRange mapVars) {
   return success();
 }
 
+static LogicalResult verifyPrivateVarsMapping(TargetOp targetOp) {
+  std::optional<DenseI64ArrayAttr> privateMapIndices =
+      targetOp.getPrivateMapsAttr();
+
+  // None of the private operands are mapped.
+  if (!privateMapIndices.has_value() || !privateMapIndices.value())
+    return success();
+
+  OperandRange privateVars = targetOp.getPrivateVars();
+
+  if (privateMapIndices.value().size() !=
+      static_cast<int64_t>(privateVars.size()))
+    return emitError(targetOp.getLoc(), "sizes of `private` operand range and "
+                                        "`private_maps` attribute mismatch");
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TargetDataOp
 //===----------------------------------------------------------------------===//
@@ -1671,7 +1729,8 @@ void TargetOp::build(OpBuilder &builder, OperationState &state,
                   /*in_reduction_vars=*/{}, /*in_reduction_byref=*/nullptr,
                   /*in_reduction_syms=*/nullptr, clauses.isDevicePtrVars,
                   clauses.mapVars, clauses.nowait, clauses.privateVars,
-                  makeArrayAttr(ctx, clauses.privateSyms), clauses.threadLimit);
+                  makeArrayAttr(ctx, clauses.privateSyms), clauses.threadLimit,
+                  /*private_maps=*/nullptr);
 }
 
 /// Only allow OpenMP terminators and non-OpenMP ops that have known memory
@@ -1763,8 +1822,16 @@ LogicalResult TargetOp::verify() {
 
   LogicalResult verifyDependVars =
       verifyDependVarList(*this, getDependKinds(), getDependVars());
-  return failed(verifyDependVars) ? verifyDependVars
-                                  : verifyMapClause(*this, getMapVars());
+
+  if (failed(verifyDependVars))
+    return verifyDependVars;
+
+  LogicalResult verifyMapVars = verifyMapClause(*this, getMapVars());
+
+  if (failed(verifyMapVars))
+    return verifyMapVars;
+
+  return verifyPrivateVarsMapping(*this);
 }
 
 Operation *TargetOp::getInnermostCapturedOmpOp() {
@@ -2202,8 +2269,8 @@ void WsloopOp::build(OpBuilder &builder, OperationState &state,
       builder, state,
       /*allocate_vars=*/{}, /*allocator_vars=*/{}, clauses.linearVars,
       clauses.linearStepVars, clauses.nowait, clauses.order, clauses.orderMod,
-      clauses.ordered, /*private_vars=*/{}, /*private_syms=*/nullptr,
-      clauses.reductionVars,
+      clauses.ordered, clauses.privateVars,
+      makeArrayAttr(ctx, clauses.privateSyms), clauses.reductionVars,
       makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
       makeArrayAttr(ctx, clauses.reductionSyms), clauses.scheduleKind,
       clauses.scheduleChunk, clauses.scheduleMod, clauses.scheduleSimd);

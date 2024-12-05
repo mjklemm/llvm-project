@@ -3,6 +3,7 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 add_flang_library(FlangOpenMPTransforms
   DoConcurrentConversion.cpp
   FunctionFiltering.cpp
+  GenericLoopConversion.cpp
   GlobalFiltering.cpp
   MapsForPrivatizedSymbols.cpp
   MapInfoFinalization.cpp
@@ -28,4 +29,5 @@ add_flang_library(FlangOpenMPTransforms
   HLFIRDialect
   MLIRIR
   MLIRPass
+  MLIRTransformUtils
 )

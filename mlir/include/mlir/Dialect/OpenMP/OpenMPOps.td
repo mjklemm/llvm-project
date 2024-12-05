@@ -1227,21 +1227,16 @@ def TargetOp : OpenMP_Op<"target", traits = [
     check. If this value is 1 or is not provided then the target region runs on
     a device, if it is 0 then the target region is executed on the host device.
 
-    The optional `trip_count` indicates the total number of loop iterations,
-    only if this target region represents a single TEAMS+DISTRIBUTE+PARALLEL
-    worksharing loop.
-
-    The optional `num_teams_lower`, `num_teams_upper` and `teams_thread_limit`
-    arguments represent the corresponding arguments of a directly nested
-    `omp.teams`. They can be only set in this operation when representing
-    combined constructs that include TARGET and TEAMS, so that they can be
-    evaluated in the host device.
-
-    The optional `num_threads` argument represents the corresponding argument of
-    a nested `omp.parallel`, which is only allowed if this target region
-    contains a single (possibly multi-level) nest of OpenMP operations including
-    an `omp.parallel`.
+    The `private_maps` attribute connects `private` operands to their corresponding
+    `map` operands. For `private` operands that require a map, the value of the
+    corresponding element in the attribute is the index of the `map` operand
+    (relative to other `map` operands not the whole operands of the operation). For
+    `private` opernads that do not require a map, this value is -1 (which is omitted
+    from the assembly foramt printing).
   }] # clausesDescription;
+
+  let arguments = !con(clausesArgs,
+                       (ins OptionalAttr<DenseI64ArrayAttr>:$private_maps));
 
   let builders = [
     OpBuilder<(ins CArg<"const TargetOperands &">:$clauses)>
@@ -1249,6 +1244,20 @@ def TargetOp : OpenMP_Op<"target", traits = [
 
   let extraClassDeclaration = [{
     unsigned numMapBlockArgs() { return getMapVars().size(); }
+
+    mlir::Value getMappedValueForPrivateVar(unsigned privVarIdx) {
+      std::optional<DenseI64ArrayAttr> privateMapIdices = getPrivateMapsAttr();
+
+      if (!privateMapIdices.has_value())
+        return {};
+
+      int64_t mapInfoOpIdx = (*privateMapIdices)[privVarIdx];
+
+      if (mapInfoOpIdx == -1)
+        return {};
+
+      return getMapVars()[mapInfoOpIdx];
+    }
 
     /// Returns the innermost OpenMP dialect operation captured by this target
     /// construct. For an operation to be detected as captured, it must be
@@ -1272,7 +1281,7 @@ def TargetOp : OpenMP_Op<"target", traits = [
         $region, $host_eval_vars, type($host_eval_vars), $in_reduction_vars,
         type($in_reduction_vars), $in_reduction_byref, $in_reduction_syms,
         $map_vars, type($map_vars), $private_vars, type($private_vars),
-        $private_syms) attr-dict
+        $private_syms, $private_maps) attr-dict
   }];
 
   let hasVerifier = 1;
