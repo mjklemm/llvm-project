@@ -2219,7 +2219,7 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
 
   SmallVector<omp::DeclareReductionOp> reductionDecls;
   collectReductionDecls(wsloopOp, reductionDecls);
-  llvm::OpenMPIRBuilder::InsertPointTy redAllocaIP =
+  llvm::OpenMPIRBuilder::InsertPointTy allocaIP =
       findAllocaInsertPoint(builder, moduleTranslation);
 
   SmallVector<llvm::Value *> privateReductionVariables(
@@ -2232,7 +2232,7 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
 
   llvm::Expected<llvm::BasicBlock *> afterAllocas = allocatePrivateVars(
       builder, moduleTranslation, privateBlockArgs, privateDecls,
-      mlirPrivateVars, llvmPrivateVars, redAllocaIP);
+      mlirPrivateVars, llvmPrivateVars, allocaIP);
   if (handleError(afterAllocas, opInst).failed())
     return failure();
 
@@ -2244,7 +2244,7 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
   SmallVector<DeferredStore> deferredStores;
 
   if (failed(allocReductionVars(wsloopOp, reductionArgs, builder,
-                                moduleTranslation, redAllocaIP, reductionDecls,
+                                moduleTranslation, allocaIP, reductionDecls,
                                 privateReductionVariables, reductionVariableMap,
                                 deferredStores, isByRef)))
     return failure();
@@ -2300,8 +2300,6 @@ convertOmpWsloop(Operation &opInst, llvm::IRBuilderBase &builder,
     return failure();
 
   // Process the reductions if required.
-  llvm::OpenMPIRBuilder::InsertPointTy allocaIP =
-      findAllocaInsertPoint(builder, moduleTranslation);
   if (failed(createReductionsAndCleanup(
           wsloopOp, builder, moduleTranslation, allocaIP, reductionDecls,
           privateReductionVariables, isByRef, wsloopOp.getNowait(),
@@ -4929,9 +4927,6 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
 
   if (!getTargetEntryUniqueInfo(entryInfo, targetOp, parentName))
     return failure();
-
-  int32_t defaultValTeams = -1;
-  int32_t defaultValThreads = 0;
 
   MapInfoData mapData;
   collectMapDataFromMapOperands(mapData, mapVars, moduleTranslation, dl,

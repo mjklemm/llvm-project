@@ -292,17 +292,6 @@ llvm.func @target_firstprivate(%x : !llvm.ptr) {
 
 // -----
 
-llvm.func @target_thread_limit(%x : i32) {
-  // expected-error@below {{not yet implemented: Unhandled clause thread_limit in omp.target operation}}
-  // expected-error@below {{LLVM Translation failed for operation: omp.target}}
-  omp.target thread_limit(%x : i32) {
-    omp.terminator
-  }
-  llvm.return
-}
-
-// -----
-
 llvm.func @target_enter_data_depend(%x: !llvm.ptr) {
   // expected-error@below {{not yet implemented: Unhandled clause depend in omp.target_enter_data operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.target_enter_data}}
