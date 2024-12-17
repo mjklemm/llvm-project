@@ -1723,8 +1723,8 @@ void TargetOp::build(OpBuilder &builder, OperationState &state,
   // TODO Store clauses in op: allocateVars, allocatorVars, inReductionVars,
   // inReductionByref, inReductionSyms.
   TargetOp::build(builder, state, /*allocate_vars=*/{}, /*allocator_vars=*/{},
-                  makeArrayAttr(ctx, clauses.dependKinds), clauses.dependVars,
-                  clauses.device, clauses.hasDeviceAddrVars,
+                  clauses.bare, makeArrayAttr(ctx, clauses.dependKinds),
+                  clauses.dependVars, clauses.device, clauses.hasDeviceAddrVars,
                   clauses.hostEvalVars, clauses.ifExpr,
                   /*in_reduction_vars=*/{}, /*in_reduction_byref=*/nullptr,
                   /*in_reduction_syms=*/nullptr, clauses.isDevicePtrVars,
@@ -2507,7 +2507,7 @@ void TaskOp::build(OpBuilder &builder, OperationState &state,
                 makeArrayAttr(ctx, clauses.inReductionSyms), clauses.mergeable,
                 clauses.priority, /*private_vars=*/clauses.privateVars,
                 /*private_syms=*/makeArrayAttr(ctx, clauses.privateSyms),
-                clauses.untied);
+                clauses.untied, clauses.eventHandle);
 }
 
 LogicalResult TaskOp::verify() {
