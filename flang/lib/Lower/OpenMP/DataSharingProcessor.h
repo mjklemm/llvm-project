@@ -86,7 +86,7 @@ private:
   lower::pft::Evaluation &eval;
   bool shouldCollectPreDeterminedSymbols;
   bool useDelayedPrivatization;
-  lower::SymMap *symTable;
+  lower::SymMap &symTable;
 
   OMPConstructSymbolVisitor visitor;
   bool privatizationDone = false;
@@ -124,8 +124,7 @@ public:
                        const List<Clause> &clauses,
                        lower::pft::Evaluation &eval,
                        bool shouldCollectPreDeterminedSymbols,
-                       bool useDelayedPrivatization = false,
-                       lower::SymMap *symTable = nullptr);
+                       bool useDelayedPrivatization, lower::SymMap &symTable);
 
   // Privatisation is split into 3 steps:
   //

@@ -17,7 +17,7 @@ module attributes {llvm.target_triple = "amdgcn-amd-amdhsa", omp.is_target_devic
   llvm.func @_QQmain() attributes {} {
     %0 = llvm.mlir.addressof @_QMtest_0Esp : !llvm.ptr
 
-  // CHECK-DAG:   omp.target:                                       ; preds = %user_code.entry
+  // CHECK-DAG:   omp.target:                                       ; preds = %outlined.body
   // CHECK-DAG: %[[V:.*]] = load ptr, ptr @_QMtest_0Esp_decl_tgt_ref_ptr, align 8
   // CHECK-DAG: store i32 1, ptr %[[V]], align 4
   // CHECK-DAG: br label %omp.region.cont

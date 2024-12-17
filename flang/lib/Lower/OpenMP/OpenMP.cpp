@@ -381,6 +381,9 @@ extractOmpDirective(const parser::OpenMPConstruct &ompConstruct) {
           [](const parser::OpenMPDeclarativeAllocate &c) {
             return llvm::omp::OMPD_allocate;
           },
+          [](const parser::OpenMPErrorConstruct &c) {
+            return llvm::omp::OMPD_error;
+          },
           [](const parser::OpenMPExecutableAllocate &c) {
             return llvm::omp::OMPD_allocate;
           },
@@ -1102,7 +1105,8 @@ static void createBodyOfOp(mlir::Operation &op, const OpWithBodyGenInfo &info,
   std::optional<DataSharingProcessor> tempDsp;
   if (privatize && !info.dsp) {
     tempDsp.emplace(info.converter, info.semaCtx, *info.clauses, info.eval,
-                    Fortran::lower::omp::isLastItemInQueue(item, queue));
+                    Fortran::lower::omp::isLastItemInQueue(item, queue),
+                    /*useDelayedPrivatization=*/false, info.symTable);
     tempDsp->processStep1();
     tempDsp->processStep2();
   }
@@ -1617,6 +1621,7 @@ static void genTargetClauses(
     llvm::SmallVectorImpl<const semantics::Symbol *> &isDevicePtrSyms,
     llvm::SmallVectorImpl<const semantics::Symbol *> &mapSyms) {
   ClauseProcessor cp(converter, semaCtx, clauses);
+  cp.processBare(clauseOps);
   cp.processDepend(clauseOps);
   cp.processDevice(stmtCtx, clauseOps);
   cp.processHasDeviceAddr(clauseOps, hasDeviceAddrSyms);
@@ -1700,8 +1705,10 @@ static void genTaskClauses(lower::AbstractConverter &converter,
   cp.processMergeable(clauseOps);
   cp.processPriority(stmtCtx, clauseOps);
   cp.processUntied(clauseOps);
+  cp.processDetach(clauseOps);
+  // TODO Support delayed privatization.
 
-  cp.processTODO<clause::Affinity, clause::Detach, clause::InReduction>(
+  cp.processTODO<clause::Affinity, clause::InReduction>(
       loc, llvm::omp::Directive::OMPD_task);
 }
 
@@ -1865,7 +1872,7 @@ static void genLoopOp(lower::AbstractConverter &converter,
 
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/true, &symTable);
+                           /*useDelayedPrivatization=*/true, symTable);
   dsp.processStep1();
   dsp.processStep2(&loopClauseOps);
 
@@ -1987,7 +1994,8 @@ genSectionsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   // Insert privatizations before SECTIONS
   lower::SymMapScope scope(symTable);
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
-                           lower::omp::isLastItemInQueue(item, queue));
+                           lower::omp::isLastItemInQueue(item, queue),
+                           /*useDelayedPrivatization=*/false, symTable);
   dsp.processStep1();
   // TODO: Add support for delayed privatization.
   dsp.processStep2();
@@ -2142,10 +2150,10 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/
                            lower::omp::isLastItemInQueue(item, queue),
-                           enableDelayedPrivatizationStaging, &symTable);
+                           /*useDelayedPrivatization=*/true, symTable);
   dsp.processStep1();
-  if (enableDelayedPrivatizationStaging)
-    dsp.processStep2(&clauseOps);
+  dsp.processStep2(&clauseOps);
+
   // 5.8.1 Implicit Data-Mapping Attribute Rules
   // The following code follows the implicit data-mapping rules to map all the
   // symbols used inside the region that do not have explicit data-environment
@@ -2347,7 +2355,7 @@ genTaskOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
 
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            lower::omp::isLastItemInQueue(item, queue),
-                           /*useDelayedPrivatization=*/true, &symTable);
+                           /*useDelayedPrivatization=*/true, symTable);
   dsp.processStep1();
   dsp.processStep2(&clauseOps);
 
@@ -2482,7 +2490,7 @@ static void genStandaloneDistribute(lower::AbstractConverter &converter,
 
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           enableDelayedPrivatizationStaging, &symTable);
+                           enableDelayedPrivatizationStaging, symTable);
   dsp.processStep1();
   dsp.processStep2(&distributeClauseOps);
 
@@ -2516,7 +2524,7 @@ static void genStandaloneDo(lower::AbstractConverter &converter,
 
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           enableDelayedPrivatizationStaging, &symTable);
+                           enableDelayedPrivatizationStaging, symTable);
   dsp.processStep1();
   dsp.processStep2(&wsloopClauseOps);
 
@@ -2556,7 +2564,7 @@ static void genStandaloneParallel(lower::AbstractConverter &converter,
   if (enableDelayedPrivatization) {
     dsp.emplace(converter, semaCtx, item->clauses, eval,
                 lower::omp::isLastItemInQueue(item, queue),
-                /*useDelayedPrivatization=*/true, &symTable);
+                /*useDelayedPrivatization=*/true, symTable);
     dsp->processStep1();
     dsp->processStep2(&parallelClauseOps);
   }
@@ -2587,7 +2595,7 @@ static void genStandaloneSimd(lower::AbstractConverter &converter,
   // TODO: Support delayed privatization.
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/false, &symTable);
+                           /*useDelayedPrivatization=*/false, symTable);
   dsp.processStep1();
   dsp.processStep2();
 
@@ -2642,7 +2650,7 @@ static void genCompositeDistributeParallelDo(
 
   DataSharingProcessor dsp(converter, semaCtx, doItem->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/true, &symTable);
+                           /*useDelayedPrivatization=*/true, symTable);
   dsp.processStep1();
   dsp.processStep2(&parallelClauseOps);
 
@@ -2711,7 +2719,7 @@ static void genCompositeDistributeParallelDoSimd(
 
   DataSharingProcessor dsp(converter, semaCtx, simdItem->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/true, &symTable);
+                           /*useDelayedPrivatization=*/true, symTable);
   dsp.processStep1();
   dsp.processStep2(&parallelClauseOps);
 
@@ -2800,7 +2808,7 @@ static void genCompositeDistributeSimd(lower::AbstractConverter &converter,
   // TODO: Support delayed privatization.
   DataSharingProcessor dsp(converter, semaCtx, simdItem->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/false, &symTable);
+                           /*useDelayedPrivatization=*/false, symTable);
   dsp.processStep1();
   dsp.processStep2();
 
@@ -2858,7 +2866,7 @@ static void genCompositeDoSimd(lower::AbstractConverter &converter,
   // TODO: Support delayed privatization.
   DataSharingProcessor dsp(converter, semaCtx, simdItem->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/false, &symTable);
+                           /*useDelayedPrivatization=*/false, symTable);
   dsp.processStep1();
   dsp.processStep2();
 
@@ -3337,6 +3345,7 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
         !std::holds_alternative<clause::Nowait>(clause.u) &&
         !std::holds_alternative<clause::NumTeams>(clause.u) &&
         !std::holds_alternative<clause::NumThreads>(clause.u) &&
+        !std::holds_alternative<clause::OmpxBare>(clause.u) &&
         !std::holds_alternative<clause::Priority>(clause.u) &&
         !std::holds_alternative<clause::Private>(clause.u) &&
         !std::holds_alternative<clause::ProcBind>(clause.u) &&
@@ -3349,7 +3358,8 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
         !std::holds_alternative<clause::UseDevicePtr>(clause.u) &&
         !std::holds_alternative<clause::InReduction>(clause.u) &&
         !std::holds_alternative<clause::Mergeable>(clause.u) &&
-        !std::holds_alternative<clause::TaskReduction>(clause.u)) {
+        !std::holds_alternative<clause::TaskReduction>(clause.u) &&
+        !std::holds_alternative<clause::Detach>(clause.u)) {
       std::string name =
           parser::ToUpperCaseLetters(llvm::omp::getOpenMPClauseName(clause.id));
       TODO(clauseLocation, name + " clause is not implemented yet");
@@ -3383,6 +3393,13 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
   mlir::Location currentLocation = converter.getCurrentLocation();
   genCriticalOp(converter, symTable, semaCtx, eval, currentLocation, queue,
                 queue.begin(), name);
+}
+
+static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
+                   semantics::SemanticsContext &semaCtx,
+                   lower::pft::Evaluation &eval,
+                   const parser::OpenMPErrorConstruct &) {
+  TODO(converter.getCurrentLocation(), "OpenMPErrorConstruct");
 }
 
 static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,

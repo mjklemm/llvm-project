@@ -292,24 +292,6 @@ llvm.func @target_firstprivate(%x : !llvm.ptr) {
 
 // -----
 
-omp.private {type = private} @x.privatizer : !llvm.ptr alloc {
-^bb0(%arg0: !llvm.ptr):
-  omp.yield(%arg0 : !llvm.ptr)
-} dealloc {
-^bb0(%arg0: !llvm.ptr):
-  omp.yield
-}
-llvm.func @target_struct_privatization(%x : !llvm.ptr) {
-  // expected-error@below {{not yet implemented: privatization of structures in omp.target operation}}
-  // expected-error@below {{LLVM Translation failed for operation: omp.target}}
-  omp.target private(@x.privatizer %x -> %arg0 : !llvm.ptr) {
-    omp.terminator
-  }
-  llvm.return
-}
-
-// -----
-
 llvm.func @target_enter_data_depend(%x: !llvm.ptr) {
   // expected-error@below {{not yet implemented: Unhandled clause depend in omp.target_enter_data operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.target_enter_data}}
