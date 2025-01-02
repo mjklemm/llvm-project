@@ -791,7 +791,7 @@ private:
 
     return Fortran::lower::omp::internal::createMapInfoOp(
         rewriter, liveIn.getLoc(), rawAddr,
-        /*varPtrPtr=*/{}, declareOp.getUniqName().str(), boundsOps,
+        /*varPtrPtr=*/{}, name.str(), boundsOps,
         /*members=*/{},
         /*membersIndex=*/mlir::ArrayAttr{},
         static_cast<
@@ -814,8 +814,8 @@ private:
     llvm::SmallVector<mlir::Type> regionArgTypes;
     llvm::SmallVector<mlir::Location> regionArgLocs;
 
-    for (auto var :
-         llvm::concat<const mlir::Value>(clauseOps.hostEvalVars, mappedVars)) {
+    for (auto var : llvm::concat<const mlir::Value>(clauseOps.hostEvalVars,
+                                                    clauseOps.mapVars)) {
       regionArgTypes.push_back(var.getType());
       regionArgLocs.push_back(var.getLoc());
     }
@@ -825,11 +825,19 @@ private:
         rewriter,
         fir::getKindMapping(targetOp->getParentOfType<mlir::ModuleOp>()));
 
-    for (auto [arg, mapInfoOp, mappedVar] : llvm::zip_equal(
-             argIface.getMapBlockArgs(), clauseOps.mapVars, mappedVars)) {
+    // Within the loop, it possible that we discover other values that need to
+    // mapped to the target region (the shape info values for arrays, for
+    // example). Therefore, the map block args might be extended and resized.
+    // Hence, we invoke `argIface.getMapBlockArgs()` every iteration to make
+    // sure we access the proper vector of data.
+    int idx = 0;
+    for (auto [mapInfoOp, mappedVar] :
+         llvm::zip_equal(clauseOps.mapVars, mappedVars)) {
       auto miOp = mlir::cast<mlir::omp::MapInfoOp>(mapInfoOp.getDefiningOp());
-      hlfir::DeclareOp liveInDeclare = genLiveInDeclare(
-          builder, targetOp, arg, miOp, liveInShapeInfoMap.at(mappedVar));
+      hlfir::DeclareOp liveInDeclare =
+          genLiveInDeclare(builder, targetOp, argIface.getMapBlockArgs()[idx],
+                           miOp, liveInShapeInfoMap.at(mappedVar));
+      ++idx;
 
       // TODO If `mappedVar.getDefiningOp()` is a `fir::BoxAddrOp`, we probably
       // need to "unpack" the box by getting the defining op of it's value.
