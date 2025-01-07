@@ -12,12 +12,11 @@
 
 #include <flang/Lower/OpenMP/Utils.h>
 
-#include <DirectivesCommon.h>
-
 #include <flang/Evaluate/fold.h>
 #include <flang/Lower/AbstractConverter.h>
 #include <flang/Lower/ConvertExprToHLFIR.h>
 #include <flang/Lower/ConvertType.h>
+#include <flang/Lower/DirectivesCommon.h>
 #include <flang/Lower/OpenMP/Clauses.h>
 #include <flang/Lower/PFTBuilder.h>
 #include <flang/Lower/StatementContext.h>

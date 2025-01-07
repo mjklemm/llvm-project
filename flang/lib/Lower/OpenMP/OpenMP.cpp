@@ -15,13 +15,13 @@
 #include "ClauseProcessor.h"
 #include "DataSharingProcessor.h"
 #include "Decomposer.h"
-#include "DirectivesCommon.h"
 #include "ReductionProcessor.h"
 #include "flang/Common/OpenMP-utils.h"
 #include "flang/Common/idioms.h"
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/ConvertExpr.h"
 #include "flang/Lower/ConvertVariable.h"
+#include "flang/Lower/DirectivesCommon.h"
 #include "flang/Lower/OpenMP/Clauses.h"
 #include "flang/Lower/OpenMP/Utils.h"
 #include "flang/Lower/StatementContext.h"
@@ -381,8 +381,15 @@ extractOmpDirective(const parser::OpenMPConstruct &ompConstruct) {
           [](const parser::OpenMPDeclarativeAllocate &c) {
             return llvm::omp::OMPD_allocate;
           },
-          [](const parser::OpenMPErrorConstruct &c) {
-            return llvm::omp::OMPD_error;
+          [](const parser::OpenMPUtilityConstruct &c) {
+            return common::visit(
+                common::visitors{[](const parser::OmpErrorDirective &c) {
+                                   return llvm::omp::OMPD_error;
+                                 },
+                                 [](const parser::OmpNothingDirective &c) {
+                                   return llvm::omp::OMPD_nothing;
+                                 }},
+                c.u);
           },
           [](const parser::OpenMPExecutableAllocate &c) {
             return llvm::omp::OMPD_allocate;
@@ -1322,7 +1329,7 @@ static void genBodyOfTargetOp(
       // NOTE: We skip BoxDimsOp's as the lesser of two evils is to map the
       // indices separately, as the alternative is to eventually map the Box,
       // which comes with a fairly large overhead comparatively. We could be
-      // more robust about this and check using a BackWardsSlice to see if we
+      // more robust about this and check using a BackwardsSlice to see if we
       // run the risk of mapping a box.
       if (mlir::isMemoryEffectFree(valOp) &&
           !mlir::isa<fir::BoxDimsOp>(valOp)) {
@@ -2189,32 +2196,25 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     if (const auto *details =
             sym.template detailsIf<semantics::HostAssocDetails>())
       converter.copySymbolBinding(details->symbol(), sym);
-    llvm::SmallVector<mlir::Value> bounds;
     std::stringstream name;
     fir::ExtendedValue dataExv = converter.getSymbolExtendedValue(sym);
     name << sym.name().ToString();
 
     lower::AddrAndBoundsInfo info = getDataOperandBaseAddr(
         converter, firOpBuilder, sym, converter.getCurrentLocation());
-    mlir::Value baseOp = info.rawInput;
-    if (mlir::isa<fir::BaseBoxType>(fir::unwrapRefType(baseOp.getType())))
-      bounds = lower::genBoundsOpsFromBox<mlir::omp::MapBoundsOp,
-                                          mlir::omp::MapBoundsType>(
-          firOpBuilder, converter.getCurrentLocation(), dataExv, info);
-    if (mlir::isa<fir::SequenceType>(fir::unwrapRefType(baseOp.getType()))) {
-      bool dataExvIsAssumedSize =
-          semantics::IsAssumedSizeArray(sym.GetUltimate());
-      bounds = lower::genBaseBoundsOps<mlir::omp::MapBoundsOp,
-                                       mlir::omp::MapBoundsType>(
-          firOpBuilder, converter.getCurrentLocation(), dataExv,
-          dataExvIsAssumedSize);
-    }
+    llvm::SmallVector<mlir::Value> bounds =
+        lower::genImplicitBoundsOps<mlir::omp::MapBoundsOp,
+                                    mlir::omp::MapBoundsType>(
+            firOpBuilder, info, dataExv,
+            semantics::IsAssumedSizeArray(sym.GetUltimate()),
+            converter.getCurrentLocation());
 
     llvm::omp::OpenMPOffloadMappingFlags mapFlag =
         llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_IMPLICIT;
     mlir::omp::VariableCaptureKind captureKind =
         mlir::omp::VariableCaptureKind::ByRef;
 
+    mlir::Value baseOp = info.rawInput;
     mlir::Type eleType = baseOp.getType();
     if (auto refType = mlir::dyn_cast<fir::ReferenceType>(baseOp.getType()))
       eleType = refType.getElementType();
@@ -3077,6 +3077,10 @@ static void genOMPDispatch(lower::AbstractConverter &converter,
 //===----------------------------------------------------------------------===//
 // OpenMPDeclarativeConstruct visitors
 //===----------------------------------------------------------------------===//
+static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
+                   semantics::SemanticsContext &semaCtx,
+                   lower::pft::Evaluation &eval,
+                   const parser::OpenMPUtilityConstruct &);
 
 static void
 genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
@@ -3398,8 +3402,8 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
 static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
                    semantics::SemanticsContext &semaCtx,
                    lower::pft::Evaluation &eval,
-                   const parser::OpenMPErrorConstruct &) {
-  TODO(converter.getCurrentLocation(), "OpenMPErrorConstruct");
+                   const parser::OpenMPUtilityConstruct &) {
+  TODO(converter.getCurrentLocation(), "OpenMPUtilityConstruct");
 }
 
 static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
