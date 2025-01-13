@@ -1908,8 +1908,9 @@ llvm::omp::OMPTgtExecModeFlags TargetOp::getKernelExecFlags() {
   long numWrappers = std::distance(innermostWrapper, wrappers.end());
 
   // Detect Generic-SPMD: target-teams-distribute[-simd].
+  // Detect SPMD:         target-teams-loop.
   if (numWrappers == 1) {
-    if (!isa<DistributeOp>(innermostWrapper))
+    if (!isa<DistributeOp, LoopOp>(innermostWrapper))
       return OMP_TGT_EXEC_MODE_GENERIC;
 
     Operation *teamsOp = (*innermostWrapper)->getParentOp();
@@ -1917,7 +1918,9 @@ llvm::omp::OMPTgtExecModeFlags TargetOp::getKernelExecFlags() {
       return OMP_TGT_EXEC_MODE_GENERIC;
 
     if (teamsOp->getParentOp() == *this)
-      return OMP_TGT_EXEC_MODE_GENERIC_SPMD;
+      return isa<DistributeOp>(innermostWrapper)
+                 ? OMP_TGT_EXEC_MODE_GENERIC_SPMD
+                 : OMP_TGT_EXEC_MODE_SPMD;
   }
 
   // Detect SPMD: target-teams-distribute-parallel-wsloop[-simd].

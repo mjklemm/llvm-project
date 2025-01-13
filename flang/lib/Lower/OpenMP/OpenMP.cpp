@@ -567,8 +567,9 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       [[fallthrough]];
     case OMPD_target_teams:
       cp.processNumTeams(stmtCtx, hostInfo.ops);
-      processSingleNestedIf(
-          [](Directive nestedDir) { return topDistributeSet.test(nestedDir); });
+      processSingleNestedIf([](Directive nestedDir) {
+        return topDistributeSet.test(nestedDir) || topLoopSet.test(nestedDir);
+      });
       break;
 
     case OMPD_teams_distribute:
@@ -579,6 +580,17 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
     case OMPD_target_teams_distribute_simd:
       cp.processCollapse(loc, eval, hostInfo.ops, hostInfo.iv);
       cp.processNumTeams(stmtCtx, hostInfo.ops);
+      break;
+
+
+    case OMPD_teams_loop:
+      cp.processThreadLimit(stmtCtx, hostInfo.ops);
+      [[fallthrough]];
+    case OMPD_target_teams_loop:
+      cp.processNumTeams(stmtCtx, hostInfo.ops);
+      [[fallthrough]];
+    case OMPD_loop:
+      cp.processCollapse(loc, eval, hostInfo.ops, hostInfo.iv);
       break;
 
     // Standalone 'target' case.
