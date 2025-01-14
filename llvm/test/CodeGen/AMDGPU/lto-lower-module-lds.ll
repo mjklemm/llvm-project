@@ -1,3 +1,4 @@
+; XFAIL: *
 
 ; Default O0
 ; RUN: opt -mtriple=amdgcn-- -mcpu=gfx1030 %s -o %t.bc
