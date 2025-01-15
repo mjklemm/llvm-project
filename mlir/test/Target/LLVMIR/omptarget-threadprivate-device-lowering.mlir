@@ -4,7 +4,7 @@
 // omp.threadprivate does not crash on lowering during the OpenMP target device
 // pass when used in conjunction with target code in the same module.
 
-module attributes {omp.is_target_device = true, llvm.target_triple = "amdgcn-amd-amdhsa"} {
+module attributes {llvm.target_triple = "amdgcn-amd-amdhsa", omp.is_target_device = true } {
   llvm.func @func() attributes {omp.declare_target = #omp.declaretarget<device_type = (host), capture_clause = (to)>} {
     %0 = llvm.mlir.addressof @_QFEpointer2 : !llvm.ptr
     %1 = omp.threadprivate %0 : !llvm.ptr -> !llvm.ptr

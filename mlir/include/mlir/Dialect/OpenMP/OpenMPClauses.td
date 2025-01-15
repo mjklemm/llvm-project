@@ -480,7 +480,7 @@ class OpenMP_HostEvalClauseSkip<
   > : OpenMP_Clause<traits, arguments, assemblyFormat, description,
                     extraClassDeclaration> {
   let traits = [
-    BlockArgOpenMPOpInterface
+    BlockArgOpenMPOpInterface, IsolatedFromAbove
   ];
 
   let arguments = (ins

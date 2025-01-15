@@ -1733,51 +1733,25 @@ void TargetOp::build(OpBuilder &builder, OperationState &state,
                   /*private_maps=*/nullptr);
 }
 
-/// Only allow OpenMP terminators and non-OpenMP ops that have known memory
-/// effects, but don't include a memory write effect.
-static bool siblingAllowedInCapture(Operation *op) {
-  if (!op)
-    return false;
-
-  bool isOmpDialect =
-      op->getContext()->getLoadedDialect<omp::OpenMPDialect>() ==
-      op->getDialect();
-
-  if (isOmpDialect)
-    return op->hasTrait<OpTrait::IsTerminator>();
-
-  if (auto memOp = dyn_cast<MemoryEffectOpInterface>(op)) {
-    SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>, 4> effects;
-    memOp.getEffects(effects);
-    return !llvm::any_of(effects, [&](MemoryEffects::EffectInstance &effect) {
-      // FIXME Ideally we'd just check for a memory write effect. However, this
-      // would break due to HLFIR operations that in reality have no side
-      // effects but are marked as having a memory write effect on a debug
-      // resource to avoid being deleted by DCE passes.
-      return isa<MemoryEffects::Write>(effect.getEffect()) &&
-             isa<SideEffects::AutomaticAllocationScopeResource>(
-                 effect.getResource());
-    });
-  }
-  return true;
-}
-
-static LogicalResult verifyNumTeamsClause(Operation *op, Value lb, Value ub) {
-  if (lb) {
-    if (!ub)
-      return op->emitError("expected num_teams upper bound to be defined if "
-                           "the lower bound is defined");
-    if (lb.getType() != ub.getType())
-      return op->emitError(
-          "expected num_teams upper bound and lower bound to be the same type");
-  }
-  return success();
-}
-
 LogicalResult TargetOp::verify() {
+  LogicalResult verifyDependVars =
+      verifyDependVarList(*this, getDependKinds(), getDependVars());
+
+  if (failed(verifyDependVars))
+    return verifyDependVars;
+
+  LogicalResult verifyMapVars = verifyMapClause(*this, getMapVars());
+
+  if (failed(verifyMapVars))
+    return verifyMapVars;
+
+  return verifyPrivateVarsMapping(*this);
+}
+
+LogicalResult TargetOp::verifyRegions() {
   auto teamsOps = getOps<TeamsOp>();
   if (std::distance(teamsOps.begin(), teamsOps.end()) > 1)
-    return emitError("target containing multiple teams constructs");
+    return emitError("target containing multiple 'omp.teams' nested ops");
 
   // Check that host_eval values are only used in legal ways.
   llvm::omp::OMPTgtExecModeFlags execFlags = getKernelExecFlags();
@@ -1819,19 +1793,32 @@ LogicalResult TargetOp::verify() {
                            << user->getName() << "' operation";
     }
   }
+  return success();
+}
 
-  LogicalResult verifyDependVars =
-      verifyDependVarList(*this, getDependKinds(), getDependVars());
+/// Only allow OpenMP terminators and non-OpenMP ops that have known memory
+/// effects, but don't include a memory write effect.
+static bool siblingAllowedInCapture(Operation *op) {
+  if (!op)
+    return false;
 
-  if (failed(verifyDependVars))
-    return verifyDependVars;
+  bool isOmpDialect =
+      op->getContext()->getLoadedDialect<omp::OpenMPDialect>() ==
+      op->getDialect();
 
-  LogicalResult verifyMapVars = verifyMapClause(*this, getMapVars());
+  if (isOmpDialect)
+    return op->hasTrait<OpTrait::IsTerminator>();
 
-  if (failed(verifyMapVars))
-    return verifyMapVars;
-
-  return verifyPrivateVarsMapping(*this);
+  if (auto memOp = dyn_cast<MemoryEffectOpInterface>(op)) {
+    SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>, 4> effects;
+    memOp.getEffects(effects);
+    return !llvm::any_of(effects, [&](MemoryEffects::EffectInstance &effect) {
+      return isa<MemoryEffects::Write>(effect.getEffect()) &&
+             isa<SideEffects::AutomaticAllocationScopeResource>(
+                 effect.getResource());
+    });
+  }
+  return true;
 }
 
 Operation *TargetOp::getInnermostCapturedOmpOp() {
@@ -1842,7 +1829,7 @@ Operation *TargetOp::getInnermostCapturedOmpOp() {
   // Process in pre-order to check operations from outermost to innermost,
   // ensuring we only enter the region of an operation if it meets the criteria
   // for being captured. We stop the exploration of nested operations as soon as
-  // we process a region with no operation to be captured.
+  // we process a region holding no operations to be captured.
   walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (op == *this)
       return WalkResult::advance();
@@ -1873,7 +1860,7 @@ Operation *TargetOp::getInnermostCapturedOmpOp() {
 
     // Don't capture this op if it has a not-allowed sibling, and stop recursing
     // into nested operations.
-    for (Operation &sibling : parentRegion->getOps())
+    for (Operation &sibling : op->getParentRegion()->getOps())
       if (&sibling != op && !siblingAllowedInCapture(&sibling))
         return WalkResult::interrupt();
 
@@ -2079,16 +2066,24 @@ LogicalResult TeamsOp::verify() {
   // Check parent region
   // TODO If nested inside of a target region, also check that it does not
   // contain any statements, declarations or directives other than this
-  // omp.teams construct.
+  // omp.teams construct. The issue is how to support the initialization of
+  // this operation's own arguments (allow SSA values across omp.target?).
   auto targetOp = dyn_cast_if_present<TargetOp>((*this)->getParentOp());
 
   if (!targetOp && !opInGlobalImplicitParallelRegion(*this))
     return emitError("expected to be nested inside of omp.target or not nested "
                      "in any OpenMP dialect operations");
 
-  if (failed(
-          verifyNumTeamsClause(*this, getNumTeamsLower(), getNumTeamsUpper())))
-    return failure();
+  // Check for num_teams clause restrictions
+  if (auto numTeamsLowerBound = getNumTeamsLower()) {
+    auto numTeamsUpperBound = getNumTeamsUpper();
+    if (!numTeamsUpperBound)
+      return emitError("expected num_teams upper bound to be defined if the "
+                       "lower bound is defined");
+    if (numTeamsLowerBound.getType() != numTeamsUpperBound.getType())
+      return emitError(
+          "expected num_teams upper bound and lower bound to be the same type");
+  }
 
   // Check for allocate clause restrictions
   if (getAllocateVars().size() != getAllocatorVars().size())
@@ -2322,7 +2317,7 @@ void SimdOp::build(OpBuilder &builder, OperationState &state,
                 makeArrayAttr(ctx, clauses.alignments), clauses.ifExpr,
                 /*linear_vars=*/{}, /*linear_step_vars=*/{},
                 clauses.nontemporalVars, clauses.order, clauses.orderMod,
-                /*private_vars=*/{}, /*private_syms=*/nullptr,
+                clauses.privateVars, makeArrayAttr(ctx, clauses.privateSyms),
                 clauses.reductionVars,
                 makeDenseBoolArrayAttr(ctx, clauses.reductionByref),
                 makeArrayAttr(ctx, clauses.reductionSyms), clauses.safelen,

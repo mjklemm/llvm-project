@@ -1414,9 +1414,6 @@ public:
 
   /// Supporting functions for Reductions CodeGen.
 private:
-  /// Emit the llvm.used metadata.
-  void emitUsed(StringRef Name, std::vector<llvm::WeakTrackingVH> &List);
-
   /// Get the id of the current thread on the GPU.
   Value *getGPUThreadID();
 
@@ -2036,6 +2033,13 @@ public:
   /// Value.
   GlobalValue *createGlobalFlag(unsigned Value, StringRef Name);
 
+  /// Emit the llvm.used metadata.
+  void emitUsed(StringRef Name, ArrayRef<llvm::WeakTrackingVH> List);
+
+  /// Emit the kernel execution mode.
+  GlobalVariable *emitKernelExecutionMode(StringRef KernelName,
+                                          omp::OMPTgtExecModeFlags Mode);
+
   /// Generate control flow and cleanup for cancellation.
   ///
   /// \param CancelFlag Flag indicating if the cancellation is performed.
@@ -2248,29 +2252,42 @@ public:
           MapNamesArray(MapNamesArray) {}
   };
 
-  /// Container to pass the default bounds for the number of teams and threads
-  /// with which a kernel must be launched, used to set kernel attributes and
-  /// populate associated static structures.
-  struct TargetKernelDefaultBounds {
+  /// Container to pass the default attributes with which a kernel must be
+  /// launched, used to set kernel attributes and populate associated static
+  /// structures.
+  ///
+  /// For max values, < 0 means unset, == 0 means set but unknown at compile
+  /// time. The number of max values will be 1 except for the case where
+  /// ompx_bare is set.
+  struct TargetKernelDefaultAttrs {
+    omp::OMPTgtExecModeFlags ExecFlags =
+        omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_GENERIC;
+    SmallVector<int32_t, 3> MaxTeams = {-1};
     int32_t MinTeams = 1;
-    SmallVector<int32_t> MaxTeams;
+    SmallVector<int32_t, 3> MaxThreads = {-1};
     int32_t MinThreads = 1;
-    SmallVector<int32_t> MaxThreads;
     int32_t ReductionDataSize = 0;
     int32_t ReductionBufferLength = 0;
   };
 
-  /// Container to pass the runtime SSA values or constants related to the
+  /// Container to pass LLVM IR runtime values or constants related to the
   /// number of teams and threads with which the kernel must be launched, as
-  /// well as the trip count of the loop. These must be defined in the host code
-  /// prior to the call to the kernel launch OpenMP RTL function.
-  struct TargetKernelRuntimeBounds {
-    Value *LoopTripCount = nullptr;
-    SmallVector<Value *> TargetThreadLimit;
-    SmallVector<Value *> TeamsThreadLimit;
+  /// well as the trip count of the loop, if it is an SPMD or Generic-SPMD
+  /// kernel. These must be defined in the host prior to the call to the kernel
+  /// launch OpenMP RTL function.
+  struct TargetKernelRuntimeAttrs {
+    SmallVector<Value *, 3> MaxTeams = {nullptr};
     Value *MinTeams = nullptr;
-    SmallVector<Value *> MaxTeams;
+    SmallVector<Value *, 3> TargetThreadLimit = {nullptr};
+    SmallVector<Value *, 3> TeamsThreadLimit = {nullptr};
+
+    /// 'parallel' construct 'num_threads' clause value, if present and it is an
+    /// SPMD kernel.
     Value *MaxThreads = nullptr;
+
+    /// Total number of iterations of the SPMD or Generic-SPMD kernel or null if
+    /// it is a generic kernel.
+    Value *LoopTripCount = nullptr;
   };
 
   /// Data structure that contains the needed information to construct the
@@ -2782,11 +2799,11 @@ public:
   /// Create a runtime call for kmpc_target_init
   ///
   /// \param Loc The insert and source location description.
-  /// \param ExecFlags Kernel execution flags.
-  /// \param Bounds The default kernel lanuch bounds.
+  /// \param Attrs Structure containing the default attributes, including
+  ///        numbers of threads and teams to launch the kernel with.
   InsertPointTy createTargetInit(
-      const LocationDescription &Loc, omp::OMPTgtExecModeFlags ExecFlags,
-      const llvm::OpenMPIRBuilder::TargetKernelDefaultBounds &Bounds);
+      const LocationDescription &Loc,
+      const llvm::OpenMPIRBuilder::TargetKernelDefaultAttrs &Attrs);
 
   /// Create a runtime call for kmpc_target_deinit
   ///
@@ -3006,30 +3023,31 @@ public:
   /// Generator for '#omp target'
   ///
   /// \param Loc where the target data construct was encountered.
-  /// \param ExecFlags kernel execution flags.
   /// \param IsOffloadEntry whether it is an offload entry.
-  /// \param IfCond value of the IF clause for the TARGET construct or nullptr.
   /// \param CodeGenIP The insertion point where the call to the outlined
-  /// function should be emitted.
+  ///        function should be emitted.
   /// \param EntryInfo The entry information about the function.
-  /// \param DefaultBounds The default kernel launch bounds.
-  /// \param RuntimeBounds The runtime kernel launch bounds.
+  /// \param DefaultAttrs Structure containing the default attributes, including
+  ///        numbers of threads and teams to launch the kernel with.
+  /// \param RuntimeAttrs Structure containing the runtime numbers of threads
+  ///        and teams to launch the kernel with.
+  /// \param IfCond value of the `if` clause.
   /// \param Inputs The input values to the region that will be passed.
-  /// as arguments to the outlined function.
+  ///        as arguments to the outlined function.
   /// \param BodyGenCB Callback that will generate the region code.
   /// \param ArgAccessorFuncCB Callback that will generate accessors
-  /// instructions for passed in target arguments where necessary.
+  ///        instructions for passed in target arguments where neccessary
   /// \param Dependencies A vector of DependData objects that carry
-  // dependency information as passed in the depend clause.
-  // \param HasNowait Whether the target construct has a `nowait` clause or not.
+  ///        dependency information as passed in the depend clause
+  /// \param HasNowait Whether the target construct has a `nowait` clause or
+  ///        not.
   InsertPointOrErrorTy createTarget(
-      const LocationDescription &Loc, omp::OMPTgtExecModeFlags ExecFlags,
-      bool IsOffloadEntry, Value *IfCond,
+      const LocationDescription &Loc, bool IsOffloadEntry,
       OpenMPIRBuilder::InsertPointTy AllocaIP,
       OpenMPIRBuilder::InsertPointTy CodeGenIP,
       TargetRegionEntryInfo &EntryInfo,
-      const TargetKernelDefaultBounds &DefaultBounds,
-      const TargetKernelRuntimeBounds &RuntimeBounds,
+      const TargetKernelDefaultAttrs &DefaultAttrs,
+      const TargetKernelRuntimeAttrs &RuntimeAttrs, Value *IfCond,
       SmallVectorImpl<Value *> &Inputs, GenMapInfoCallbackTy GenMapInfoCB,
       TargetBodyGenCallbackTy BodyGenCB,
       TargetGenArgAccessorsCallbackTy ArgAccessorFuncCB,

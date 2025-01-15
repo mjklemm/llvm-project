@@ -297,8 +297,9 @@ arguments for the region of that MLIR operation. This enables, for example, the
 introduction of private copies of the same underlying variable defined outside
 the MLIR operation the clause is attached to. Currently, clauses with this
 property can be classified into three main categories:
-  - Map-like clauses: `host_eval`, `map`, `use_device_addr` and
-`use_device_ptr`.
+  - Map-like clauses: `host_eval` (compiler internal, not defined by the OpenMP
+  specification: [see more](#host-evaluated-clauses-in-target-regions)), `map`,
+  `use_device_addr` and `use_device_ptr`.
   - Reduction-like clauses: `in_reduction`, `reduction` and `task_reduction`.
   - Privatization clauses: `private`.
 
@@ -543,10 +544,9 @@ combined with a `target` construct.
 Additionally, the runtime library targeted by the MLIR to LLVM IR translation of
 the OpenMP dialect supports the optimized launch of SPMD kernels (i.e.
 `target teams distribute parallel {do,for}` in OpenMP), which requires
-specifying in advance what the total trip count of the loop is. This is also the
-case of Generic-SPMD kernels (i.e. `target teams distribute`). Consequently, it
-is also necessary to evaluate the trip count on the host device prior to the
-kernel launch in these cases.
+specifying in advance what the total trip count of the loop is. Consequently, it
+is also beneficial to evaluate the trip count on the host device prior to the
+kernel launch.
 
 These host-evaluated values in MLIR would need to be placed outside of the
 `omp.target` region and also attached to the corresponding nested operations,

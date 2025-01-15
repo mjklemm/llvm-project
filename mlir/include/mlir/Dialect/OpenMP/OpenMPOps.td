@@ -1296,6 +1296,7 @@ def TargetOp : OpenMP_Op<"target", traits = [
   }];
 
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 

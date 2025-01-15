@@ -194,10 +194,6 @@ static LogicalResult checkImplementationStatus(Operation &op) {
     if (!op.getLinearVars().empty() || !op.getLinearStepVars().empty())
       result = todo("linear");
   };
-  auto checkNontemporal = [&todo](auto op, LogicalResult &result) {
-    if (!op.getNontemporalVars().empty())
-      result = todo("nontemporal");
-  };
   auto checkNowait = [&todo](auto op, LogicalResult &result) {
     if (op.getNowait())
       result = todo("nowait");
@@ -215,8 +211,24 @@ static LogicalResult checkImplementationStatus(Operation &op) {
       result = todo("priority");
   };
   auto checkPrivate = [&todo](auto op, LogicalResult &result) {
-    if (!op.getPrivateVars().empty() || op.getPrivateSyms())
-      result = todo("privatization");
+    if constexpr (std::is_same_v<std::decay_t<decltype(op)>, omp::TargetOp>) {
+      // Privatization clauses are supported, except on some situations, so we
+      // need to check here whether any of these unsupported cases are being
+      // translated.
+      if (std::optional<ArrayAttr> privateSyms = op.getPrivateSyms()) {
+        for (Attribute privatizerNameAttr : *privateSyms) {
+          omp::PrivateClauseOp privatizer = findPrivatizer(
+              op.getOperation(), cast<SymbolRefAttr>(privatizerNameAttr));
+
+          if (privatizer.getDataSharingType() ==
+              omp::DataSharingClauseType::FirstPrivate)
+            result = todo("firstprivate");
+        }
+      }
+    } else {
+      if (!op.getPrivateVars().empty() || op.getPrivateSyms())
+        result = todo("privatization");
+    }
   };
   auto checkReduction = [&todo](auto op, LogicalResult &result) {
     if (!op.getReductionVars().empty() || op.getReductionByref() ||
@@ -269,10 +281,18 @@ static LogicalResult checkImplementationStatus(Operation &op) {
       })
       .Case([&](omp::ParallelOp op) { checkAllocate(op, result); })
       .Case([&](omp::SimdOp op) {
-        checkLinear(op, result);
-        checkNontemporal(op, result);
-        checkPrivate(op, result);
-        checkReduction(op, result);
+        // Allow ignoring unimplemented SIMD clauses rather than emitting errors
+        // and stopping the compilation process.
+        if (!op.getLinearVars().empty() || !op.getLinearStepVars().empty())
+          op.emitWarning() << "ignored clause: linear in omp.simd operation";
+
+        if (!op.getNontemporalVars().empty())
+          op.emitWarning()
+              << "ignored clause: nontemporal in omp.simd operation";
+
+        if (!op.getReductionVars().empty() || op.getReductionByref() ||
+            op.getReductionSyms())
+          op.emitWarning() << "ignored clause: reduction in omp.simd operation";
       })
       .Case<omp::AtomicReadOp, omp::AtomicWriteOp, omp::AtomicUpdateOp,
             omp::AtomicCaptureOp>([&](auto op) { checkHint(op, result); })
@@ -291,19 +311,7 @@ static LogicalResult checkImplementationStatus(Operation &op) {
         checkHasDeviceAddr(op, result);
         checkInReduction(op, result);
         checkIsDevicePtr(op, result);
-        // Privatization clauses are supported, except on some situations, so we
-        // need to check here whether any of these unsupported cases are being
-        // translated.
-        if (std::optional<ArrayAttr> privateSyms = op.getPrivateSyms()) {
-          for (Attribute privatizerNameAttr : *privateSyms) {
-            omp::PrivateClauseOp privatizer = findPrivatizer(
-                op.getOperation(), cast<SymbolRefAttr>(privatizerNameAttr));
-
-            if (privatizer.getDataSharingType() ==
-                omp::DataSharingClauseType::FirstPrivate)
-              result = todo("firstprivate");
-          }
-        }
+        checkPrivate(op, result);
       })
       .Default([](Operation &) {
         // Assume all clauses for an operation can be translated unless they are
@@ -1206,6 +1214,11 @@ mapInitializationArgs(T loop, LLVM::ModuleTranslation &moduleTranslation,
   }
 }
 
+/// Inline reductions' `init` regions. This functions assumes that the
+/// `builder`'s insertion point is where the user wants the `init` regions to be
+/// inlined; i.e. it does not try to find a proper insertion location for the
+/// `init` regions. It also leaves the `builder's insertions point in a state
+/// where the user can continue the code-gen directly afterwards.
 template <typename OP>
 static LogicalResult
 initReductionVars(OP op, ArrayRef<BlockArgument> reductionArgs,
@@ -1220,9 +1233,6 @@ initReductionVars(OP op, ArrayRef<BlockArgument> reductionArgs,
   if (op.getNumReductionVars() == 0)
     return success();
 
-  llvm::IRBuilderBase::InsertPointGuard guard(builder);
-
-  builder.SetInsertPoint(latestAllocaBlock->getTerminator());
   llvm::BasicBlock *initBlock = splitBB(builder, true, "omp.reduction.init");
   auto allocaIP = llvm::IRBuilderBase::InsertPoint(
       latestAllocaBlock, latestAllocaBlock->getTerminator()->getIterator());
@@ -1242,7 +1252,10 @@ initReductionVars(OP op, ArrayRef<BlockArgument> reductionArgs,
     }
   }
 
-  builder.SetInsertPoint(&*initBlock->getFirstNonPHIOrDbgOrAlloca());
+  if (initBlock->empty() || initBlock->getTerminator() == nullptr)
+    builder.SetInsertPoint(initBlock);
+  else
+    builder.SetInsertPoint(initBlock->getTerminator());
 
   // store result of the alloc region to the allocated pointer to the real
   // reduction variable
@@ -1267,7 +1280,11 @@ initReductionVars(OP op, ArrayRef<BlockArgument> reductionArgs,
     assert(phis.size() == 1 && "expected one value to be yielded from the "
                                "reduction neutral element declaration region");
 
-    builder.SetInsertPoint(builder.GetInsertBlock()->getTerminator());
+    if (builder.GetInsertBlock()->empty() ||
+        builder.GetInsertBlock()->getTerminator() == nullptr)
+      builder.SetInsertPoint(builder.GetInsertBlock());
+    else
+      builder.SetInsertPoint(builder.GetInsertBlock()->getTerminator());
 
     if (isByRef[i]) {
       if (!reductionDecls[i].getAllocRegion().empty())
@@ -1453,7 +1470,6 @@ static LogicalResult allocAndInitializeReductionVars(
   if (op.getNumReductionVars() == 0)
     return success();
 
-  llvm::IRBuilderBase::InsertPointGuard guard(builder);
   SmallVector<DeferredStore> deferredStores;
 
   if (failed(allocReductionVars(op, reductionArgs, builder, moduleTranslation,
@@ -2376,6 +2392,8 @@ convertOmpParallel(omp::ParallelOp opInst, llvm::IRBuilderBase &builder,
       return llvm::make_error<PreviouslyReportedError>();
 
     assert(afterAllocas.get()->getSinglePredecessor());
+    builder.restoreIP(codeGenIP);
+
     if (failed(
             initReductionVars(opInst, reductionArgs, builder, moduleTranslation,
                               afterAllocas.get()->getSinglePredecessor(),
@@ -2395,7 +2413,6 @@ convertOmpParallel(omp::ParallelOp opInst, llvm::IRBuilderBase &builder,
         moduleTranslation, allocaIP);
 
     // ParallelOp has only one region associated with it.
-    builder.restoreIP(codeGenIP);
     llvm::Expected<llvm::BasicBlock *> regionBlock = convertOmpOpRegions(
         opInst.getRegion(), "omp.par.region", builder, moduleTranslation);
     if (!regionBlock)
@@ -2515,15 +2532,37 @@ convertOmpSimd(Operation &opInst, llvm::IRBuilderBase &builder,
   auto simdOp = cast<omp::SimdOp>(opInst);
   auto loopOp = cast<omp::LoopNestOp>(simdOp.getWrappedLoop());
 
-  // Silently ignore unimplemented SIMD clauses rather than emitting errors, so
-  // that compilation succeeds.
-  // if (failed(checkImplementationStatus(opInst)))
-  //   return failure();
+  if (failed(checkImplementationStatus(opInst)))
+    return failure();
 
-  // This is needed to make sure that uses of entry block arguments for clauses
-  // that are not going to be translated are mapped to the outside values.
-  if (failed(convertIgnoredWrapper(simdOp, moduleTranslation,
-                                   "{0} clauses ignored")))
+  // This is needed to make sure that uses of entry block arguments for the
+  // reduction clause, which is not yet being translated, are mapped to the
+  // outside values. This has the effect of ignoring the clause without causing
+  // a compiler crash.
+  auto blockArgIface = cast<omp::BlockArgOpenMPOpInterface>(*simdOp);
+  for (auto [arg, var] : llvm::zip_equal(blockArgIface.getReductionBlockArgs(),
+                                         simdOp.getReductionVars()))
+    moduleTranslation.mapValue(arg, moduleTranslation.lookupValue(var));
+
+  MutableArrayRef<BlockArgument> privateBlockArgs =
+      cast<omp::BlockArgOpenMPOpInterface>(*simdOp).getPrivateBlockArgs();
+  SmallVector<mlir::Value> mlirPrivateVars;
+  SmallVector<llvm::Value *> llvmPrivateVars;
+  SmallVector<omp::PrivateClauseOp> privateDecls;
+  mlirPrivateVars.reserve(privateBlockArgs.size());
+  llvmPrivateVars.reserve(privateBlockArgs.size());
+  collectPrivatizationDecls(simdOp, privateDecls);
+
+  for (mlir::Value privateVar : simdOp.getPrivateVars())
+    mlirPrivateVars.push_back(privateVar);
+
+  llvm::OpenMPIRBuilder::InsertPointTy allocaIP =
+      findAllocaInsertPoint(builder, moduleTranslation);
+
+  llvm::Expected<llvm::BasicBlock *> afterAllocas = allocatePrivateVars(
+      builder, moduleTranslation, privateBlockArgs, privateDecls,
+      mlirPrivateVars, llvmPrivateVars, allocaIP);
+  if (handleError(afterAllocas, opInst).failed())
     return failure();
 
   auto loopNestConversionResult = convertLoopNestHelper(
@@ -2568,7 +2607,9 @@ convertOmpSimd(Operation &opInst, llvm::IRBuilderBase &builder,
                         order, simdlen, safelen);
 
   builder.restoreIP(afterIP);
-  return success();
+
+  return cleanupPrivateVars(builder, moduleTranslation, simdOp.getLoc(),
+                            llvmPrivateVars, privateDecls);
 }
 
 /// Convert an Atomic Ordering attribute to llvm::AtomicOrdering.
@@ -4486,43 +4527,6 @@ createDeviceArgumentAccessor(MapInfoData &mapData, llvm::Argument &arg,
   return builder.saveIP();
 }
 
-template <typename OpTy>
-static OpTy castOrGetParentOfType(Operation *op, bool immediateParent = false) {
-  if (!op)
-    return OpTy();
-
-  if (OpTy casted = dyn_cast<OpTy>(op))
-    return casted;
-
-  if (immediateParent)
-    return dyn_cast_if_present<OpTy>(op->getParentOp());
-
-  return op->getParentOfType<OpTy>();
-}
-
-static uint64_t getTypeByteSize(mlir::Type type, DataLayout dl) {
-  uint64_t sizeInBits = dl.getTypeSizeInBits(type);
-  uint64_t sizeInBytes = sizeInBits / 8;
-  return sizeInBytes;
-}
-
-template <typename OpTy>
-static uint64_t getReductionDataSize(OpTy &op) {
-  if (op.getNumReductionVars() > 0) {
-    assert(op.getNumReductionVars() &&
-           "Only 1 reduction variable currently supported");
-    mlir::Type reductionVarTy = op.getReductionVars()[0].getType();
-    Operation *opp = op.getOperation();
-    DataLayout dl = DataLayout(opp->getParentOfType<ModuleOp>());
-    return getTypeByteSize(reductionVarTy, dl);
-  }
-  return 0;
-}
-
-static uint64_t getTeamsReductionDataSize(mlir::omp::TeamsOp &teamsOp) {
-  return getReductionDataSize<mlir::omp::TeamsOp>(teamsOp);
-}
-
 /// Follow uses of `host_eval`-defined block arguments of the given `omp.target`
 /// operation and populate output variables with their corresponding host value
 /// (i.e. operand evaluated outside of the target region), based on their uses
@@ -4589,20 +4593,77 @@ extractHostEvalClauses(omp::TargetOp targetOp, Value &numThreads,
   }
 }
 
+/// If \p op is of the given type parameter, return it casted to that type.
+/// Otherwise, if its immediate parent operation (or some other higher-level
+/// parent, if \p immediateParent is false) is of that type, return that parent
+/// casted to the given type.
+///
+/// If \p op is \c null or neither it or its parent(s) are of the specified
+/// type, return a \c null operation.
+template <typename OpTy>
+static OpTy castOrGetParentOfType(Operation *op, bool immediateParent = false) {
+  if (!op)
+    return OpTy();
+
+  if (OpTy casted = dyn_cast<OpTy>(op))
+    return casted;
+
+  if (immediateParent)
+    return dyn_cast_if_present<OpTy>(op->getParentOp());
+
+  return op->getParentOfType<OpTy>();
+}
+
+/// If the given \p value is defined by an \c llvm.mlir.constant operation and
+/// it is of an integer type, return its value.
+static std::optional<int64_t> extractConstInteger(Value value) {
+  if (!value)
+    return std::nullopt;
+
+  if (auto constOp =
+          dyn_cast_if_present<LLVM::ConstantOp>(value.getDefiningOp()))
+    if (auto constAttr = dyn_cast<IntegerAttr>(constOp.getValue()))
+      return constAttr.getInt();
+
+  return std::nullopt;
+}
+
+static uint64_t getTypeByteSize(mlir::Type type, DataLayout dl) {
+  uint64_t sizeInBits = dl.getTypeSizeInBits(type);
+  uint64_t sizeInBytes = sizeInBits / 8;
+  return sizeInBytes;
+}
+
+template <typename OpTy>
+static uint64_t getReductionDataSize(OpTy &op) {
+  if (op.getNumReductionVars() > 0) {
+    assert(op.getNumReductionVars() &&
+           "Only 1 reduction variable currently supported");
+    mlir::Type reductionVarTy = op.getReductionVars()[0].getType();
+    Operation *opp = op.getOperation();
+    DataLayout dl = DataLayout(opp->getParentOfType<ModuleOp>());
+    return getTypeByteSize(reductionVarTy, dl);
+  }
+  return 0;
+}
+
+static uint64_t getTeamsReductionDataSize(mlir::omp::TeamsOp &teamsOp) {
+  return getReductionDataSize<mlir::omp::TeamsOp>(teamsOp);
+}
+
 /// Populate default `MinTeams`, `MaxTeams` and `MaxThreads` to their default
 /// values as stated by the corresponding clauses, if constant.
 ///
 /// These default values must be set before the creation of the outlined LLVM
 /// function for the target region, so that they can be used to initialize the
 /// corresponding global `ConfigurationEnvironmentTy` structure.
-static void initTargetDefaultBounds(
-    omp::TargetOp targetOp,
-    llvm::OpenMPIRBuilder::TargetKernelDefaultBounds &bounds,
-    bool isTargetDevice, bool isGPU) {
+static void
+initTargetDefaultAttrs(omp::TargetOp targetOp,
+                       llvm::OpenMPIRBuilder::TargetKernelDefaultAttrs &attrs,
+                       bool isTargetDevice, bool isGPU) {
   // TODO: Handle constant 'if' clauses.
   Operation *capturedOp = targetOp.getInnermostCapturedOmpOp();
 
-  // Extract values for host-evaluated clauses.
   Value numThreads, numTeamsLower, numTeamsUpper, threadLimit;
   if (!isTargetDevice) {
     extractHostEvalClauses(targetOp, numThreads, numTeamsLower, numTeamsUpper,
@@ -4620,15 +4681,6 @@ static void initTargetDefaultBounds(
     if (auto parallelOp = castOrGetParentOfType<omp::ParallelOp>(capturedOp))
       numThreads = parallelOp.getNumThreads();
   }
-
-  auto extractConstInteger = [](Value value) -> std::optional<int64_t> {
-    if (auto constOp =
-            dyn_cast_if_present<LLVM::ConstantOp>(value.getDefiningOp()))
-      if (auto constAttr = dyn_cast<IntegerAttr>(constOp.getValue()))
-        return constAttr.getInt();
-
-    return std::nullopt;
-  };
 
   // Handle clauses impacting the number of teams.
 
@@ -4653,8 +4705,7 @@ static void initTargetDefaultBounds(
 
   // Handle clauses impacting the number of threads.
 
-  auto setMaxValueFromClause = [&extractConstInteger](Value clauseValue,
-                                                      int32_t &result) {
+  auto setMaxValueFromClause = [](Value clauseValue, int32_t &result) {
     if (!clauseValue)
       return;
 
@@ -4667,12 +4718,12 @@ static void initTargetDefaultBounds(
       result = 0;
   };
 
-  // Extract THREAD_LIMIT clause from TARGET and TEAMS directives.
+  // Extract 'thread_limit' clause from 'target' and 'teams' directives.
   int32_t targetThreadLimitVal = -1, teamsThreadLimitVal = -1;
   setMaxValueFromClause(targetOp.getThreadLimit(), targetThreadLimitVal);
   setMaxValueFromClause(threadLimit, teamsThreadLimitVal);
 
-  // Extract MAX_THREADS clause from PARALLEL or set to 1 if it's SIMD.
+  // Extract 'max_threads' clause from 'parallel' or set to 1 if it's SIMD.
   int32_t maxThreadsVal = -1;
   if (castOrGetParentOfType<omp::ParallelOp>(capturedOp))
     setMaxValueFromClause(numThreads, maxThreadsVal);
@@ -4681,7 +4732,8 @@ static void initTargetDefaultBounds(
     maxThreadsVal = 1;
 
   // For max values, < 0 means unset, == 0 means set but unknown. Select the
-  // minimum value between MAX_THREADS and THREAD_LIMIT clauses that were set.
+  // minimum value between 'max_threads' and 'thread_limit' clauses that were
+  // set.
   int32_t combinedMaxThreadsVal = targetThreadLimitVal;
   if (combinedMaxThreadsVal < 0 ||
       (teamsThreadLimitVal >= 0 && teamsThreadLimitVal < combinedMaxThreadsVal))
@@ -4691,23 +4743,22 @@ static void initTargetDefaultBounds(
       (maxThreadsVal >= 0 && maxThreadsVal < combinedMaxThreadsVal))
     combinedMaxThreadsVal = maxThreadsVal;
 
-  // Calculate reduction data size, limited to single reduction variable
-  // for now.
+  // Calculate reduction data size, limited to single reduction variable for
+  // now.
   int32_t reductionDataSize = 0;
   if (isGPU && capturedOp) {
-    if (auto teamsOp = castOrGetParentOfType<omp::TeamsOp>(capturedOp)) {
+    if (auto teamsOp = castOrGetParentOfType<omp::TeamsOp>(capturedOp))
       reductionDataSize = getTeamsReductionDataSize(teamsOp);
-    }
   }
 
-  // Update kernel bounds structure for the `OpenMPIRBuilder` to use.
-  bounds.MinTeams = minTeamsVal;
-  bounds.MaxTeams.push_back(maxTeamsVal);
-  bounds.MinThreads = 1;
-  bounds.MaxThreads.push_back(combinedMaxThreadsVal);
-  bounds.ReductionDataSize = reductionDataSize;
-  if (bounds.ReductionDataSize != 0)
-    bounds.ReductionBufferLength = 1024;
+  // Update kernel attrs structure for the `OpenMPIRBuilder` to use.
+  attrs.MinTeams = minTeamsVal;
+  attrs.MaxTeams.front() = maxTeamsVal;
+  attrs.MinThreads = 1;
+  attrs.MaxThreads.front() = combinedMaxThreadsVal;
+  attrs.ReductionDataSize = reductionDataSize;
+  if (attrs.ReductionDataSize != 0)
+    attrs.ReductionBufferLength = 1024;
 }
 
 /// Gather LLVM runtime values for all clauses evaluated in the host that are
@@ -4716,10 +4767,11 @@ static void initTargetDefaultBounds(
 /// This function must be called only when compiling for the host. Also, it will
 /// only provide correct results if it's called after the body of \c targetOp
 /// has been fully generated.
-static void initTargetRuntimeBounds(
-    llvm::IRBuilderBase &builder, LLVM::ModuleTranslation &moduleTranslation,
-    omp::TargetOp targetOp,
-    llvm::OpenMPIRBuilder::TargetKernelRuntimeBounds &bounds) {
+static void
+initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
+                       LLVM::ModuleTranslation &moduleTranslation,
+                       omp::TargetOp targetOp,
+                       llvm::OpenMPIRBuilder::TargetKernelRuntimeAttrs &attrs) {
   omp::LoopNestOp loopOp = castOrGetParentOfType<omp::LoopNestOp>(
       targetOp.getInnermostCapturedOmpOp());
   unsigned numLoops = loopOp ? loopOp.getNumLoops() : 0;
@@ -4730,30 +4782,27 @@ static void initTargetRuntimeBounds(
   extractHostEvalClauses(targetOp, numThreads, numTeamsLower, numTeamsUpper,
                          teamsThreadLimit, &lowerBounds, &upperBounds, &steps);
 
-  // TODO Handle IF clauses.
-  llvm::Value *&llvmTargetThreadLimit =
-      bounds.TargetThreadLimit.emplace_back(nullptr);
+  // TODO: Handle constant 'if' clauses.
   if (Value targetThreadLimit = targetOp.getThreadLimit())
-    llvmTargetThreadLimit = moduleTranslation.lookupValue(targetThreadLimit);
+    attrs.TargetThreadLimit.front() =
+        moduleTranslation.lookupValue(targetThreadLimit);
 
   if (numTeamsLower)
-    bounds.MinTeams = moduleTranslation.lookupValue(numTeamsLower);
+    attrs.MinTeams = moduleTranslation.lookupValue(numTeamsLower);
 
-  llvm::Value *&llvmMaxTeams = bounds.MaxTeams.emplace_back(nullptr);
   if (numTeamsUpper)
-    llvmMaxTeams = moduleTranslation.lookupValue(numTeamsUpper);
+    attrs.MaxTeams.front() = moduleTranslation.lookupValue(numTeamsUpper);
 
-  llvm::Value *&llvmTeamsThreadLimit =
-      bounds.TeamsThreadLimit.emplace_back(nullptr);
   if (teamsThreadLimit)
-    llvmTeamsThreadLimit = moduleTranslation.lookupValue(teamsThreadLimit);
+    attrs.TeamsThreadLimit.front() =
+        moduleTranslation.lookupValue(teamsThreadLimit);
 
   if (numThreads)
-    bounds.MaxThreads = moduleTranslation.lookupValue(numThreads);
+    attrs.MaxThreads = moduleTranslation.lookupValue(numThreads);
 
   if (targetOp.getKernelExecFlags() != llvm::omp::OMP_TGT_EXEC_MODE_GENERIC) {
     llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
-    bounds.LoopTripCount = nullptr;
+    attrs.LoopTripCount = nullptr;
 
     // To calculate the trip count, we multiply together the trip counts of
     // every collapsed canonical loop. We don't need to create the loop nests
@@ -4769,14 +4818,14 @@ static void initTargetRuntimeBounds(
           loc, lowerBound, upperBound, step, /*IsSigned=*/true,
           loopOp.getLoopInclusive());
 
-      if (!bounds.LoopTripCount) {
-        bounds.LoopTripCount = tripCount;
+      if (!attrs.LoopTripCount) {
+        attrs.LoopTripCount = tripCount;
         continue;
       }
 
       // TODO: Enable UndefinedSanitizer to diagnose an overflow here.
-      bounds.LoopTripCount = builder.CreateMul(bounds.LoopTripCount, tripCount,
-                                               {}, /*HasNUW=*/true);
+      attrs.LoopTripCount = builder.CreateMul(attrs.LoopTripCount, tripCount,
+                                              {}, /*HasNUW=*/true);
     }
   }
 }
@@ -4793,7 +4842,7 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   bool isGPU = ompBuilder->Config.isGPU();
 
   auto parentFn = opInst.getParentOfType<LLVM::LLVMFuncOp>();
-  auto blockIface = cast<omp::BlockArgOpenMPOpInterface>(opInst);
+  auto argIface = cast<omp::BlockArgOpenMPOpInterface>(opInst);
   auto &targetRegion = targetOp.getRegion();
   // Holds the private vars that have been mapped along with the block argument
   // that corresponds to the MapInfoOp corresponding to the private var in
@@ -4808,7 +4857,7 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   llvm::DenseMap<Value, Value> mappedPrivateVars;
   DataLayout dl = DataLayout(opInst.getParentOfType<ModuleOp>());
   SmallVector<Value> mapVars = targetOp.getMapVars();
-  ArrayRef<BlockArgument> mapBlockArgs = blockIface.getMapBlockArgs();
+  ArrayRef<BlockArgument> mapBlockArgs = argIface.getMapBlockArgs();
   llvm::Function *llvmOutlinedFn = nullptr;
   TargetDirective targetDirective = getTargetDirectiveFromOp(&opInst);
 
@@ -4823,7 +4872,6 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   // to quickly look up the corresponding map variable, if any for each
   // private variable.
   if (!targetOp.getPrivateVars().empty() && !targetOp.getMapVars().empty()) {
-    auto argIface = llvm::cast<omp::BlockArgOpenMPOpInterface>(*targetOp);
     OperandRange privateVars = targetOp.getPrivateVars();
     std::optional<ArrayAttr> privateSyms = targetOp.getPrivateSyms();
     std::optional<DenseI64ArrayAttr> privateMapIndices =
@@ -4897,7 +4945,7 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
     // Do privatization after moduleTranslation has already recorded
     // mapped values.
     MutableArrayRef<BlockArgument> privateBlockArgs =
-        cast<omp::BlockArgOpenMPOpInterface>(opInst).getPrivateBlockArgs();
+        argIface.getPrivateBlockArgs();
     SmallVector<mlir::Value> mlirPrivateVars;
     SmallVector<llvm::Value *> llvmPrivateVars;
     SmallVector<omp::PrivateClauseOp> privateDecls;
@@ -4982,22 +5030,21 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
                                         allocaIP, codeGenIP);
   };
 
-  llvm::SmallVector<llvm::Value *, 4> kernelInput;
-  llvm::OpenMPIRBuilder::TargetKernelDefaultBounds defaultBounds;
-  initTargetDefaultBounds(targetOp, defaultBounds, isTargetDevice, isGPU);
+  llvm::OpenMPIRBuilder::TargetKernelRuntimeAttrs runtimeAttrs;
+  llvm::OpenMPIRBuilder::TargetKernelDefaultAttrs defaultAttrs;
+  initTargetDefaultAttrs(targetOp, defaultAttrs, isTargetDevice, isGPU);
 
   // Collect host-evaluated values needed to properly launch the kernel from the
   // host.
-  llvm::OpenMPIRBuilder::TargetKernelRuntimeBounds runtimeBounds;
   if (!isTargetDevice)
-    initTargetRuntimeBounds(builder, moduleTranslation, targetOp,
-                            runtimeBounds);
+    initTargetRuntimeAttrs(builder, moduleTranslation, targetOp, runtimeAttrs);
 
   // Pass host-evaluated values as parameters to the kernel / host fallback,
   // except if they are constants. In any case, map the MLIR block argument to
   // the corresponding LLVM values.
+  llvm::SmallVector<llvm::Value *, 4> kernelInput;
   SmallVector<Value> hostEvalVars = targetOp.getHostEvalVars();
-  ArrayRef<BlockArgument> hostEvalBlockArgs = blockIface.getHostEvalBlockArgs();
+  ArrayRef<BlockArgument> hostEvalBlockArgs = argIface.getHostEvalBlockArgs();
   for (auto [arg, var] : llvm::zip_equal(hostEvalBlockArgs, hostEvalVars)) {
     llvm::Value *value = moduleTranslation.lookupValue(var);
     moduleTranslation.mapValue(arg, value);
@@ -5031,10 +5078,9 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
 
   llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP =
       moduleTranslation.getOpenMPBuilder()->createTarget(
-          ompLoc, targetOp.getKernelExecFlags(), isOffloadEntry, ifCond,
-          allocaIP, builder.saveIP(), entryInfo, defaultBounds, runtimeBounds,
-          kernelInput, genMapInfoCB, bodyCB, argAccessorCB, dds,
-          targetOp.getNowait());
+          ompLoc, isOffloadEntry, allocaIP, builder.saveIP(), entryInfo,
+          defaultAttrs, runtimeAttrs, ifCond, kernelInput, genMapInfoCB, bodyCB,
+          argAccessorCB, dds, targetOp.getNowait());
 
   if (failed(handleError(afterIP, opInst)))
     return failure();

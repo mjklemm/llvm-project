@@ -67,9 +67,11 @@ class MapInfoFinalizationPass
   /// generate for the descriptors of box type dummy arguments, so that
   /// we can retrieve it for subsequent reuses within the functions
   /// scope.
-  std::map</*descriptor opaque pointer=*/void *,
-           /*corresponding local alloca=*/fir::AllocaOp>
-      localBoxAllocas;
+  ///
+  ///      descriptor defining op
+  ///      |                  corresponding local alloca
+  ///      |                  |
+  std::map<mlir::Operation *, mlir::Value> localBoxAllocas;
 
   /// getMemberUserList gathers all users of a particular MapInfoOp that are
   /// other MapInfoOp's and places them into the mapMemberUsers list, which
@@ -132,6 +134,11 @@ class MapInfoFinalizationPass
     if (!mlir::isa<fir::BaseBoxType>(descriptor.getType()))
       return descriptor;
 
+    mlir::Value &slot = localBoxAllocas[descriptor.getDefiningOp()];
+    if (slot) {
+      return slot;
+    }
+
     // The fir::BoxOffsetOp only works with !fir.ref<!fir.box<...>> types, as
     // allowing it to access non-reference box operations can cause some
     // problematic SSA IR. However, in the case of assumed shape's the type
@@ -147,7 +154,7 @@ class MapInfoFinalizationPass
     auto alloca = builder.create<fir::AllocaOp>(loc, descriptor.getType());
     builder.restoreInsertionPoint(insPt);
     builder.create<fir::StoreOp>(loc, descriptor, alloca);
-    return alloca;
+    return slot = alloca;
   }
 
   /// Function that generates a FIR operation accessing the descriptor's
@@ -421,10 +428,10 @@ class MapInfoFinalizationPass
           argIface
               ? argIface.getMapBlockArgsStart() + argIface.numMapBlockArgs()
               : 0;
-      addOperands(
-          mapVarsArr,
-          llvm::dyn_cast_if_present<mlir::omp::TargetOp>(argIface.getOperation()),
-          blockArgInsertIndex);
+      addOperands(mapVarsArr,
+                  llvm::dyn_cast_if_present<mlir::omp::TargetOp>(
+                      argIface.getOperation()),
+                  blockArgInsertIndex);
     }
 
     if (auto targetDataOp = llvm::dyn_cast<mlir::omp::TargetDataOp>(target)) {

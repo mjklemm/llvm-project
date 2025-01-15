@@ -381,16 +381,6 @@ extractOmpDirective(const parser::OpenMPConstruct &ompConstruct) {
           [](const parser::OpenMPDeclarativeAllocate &c) {
             return llvm::omp::OMPD_allocate;
           },
-          [](const parser::OpenMPUtilityConstruct &c) {
-            return common::visit(
-                common::visitors{[](const parser::OmpErrorDirective &c) {
-                                   return llvm::omp::OMPD_error;
-                                 },
-                                 [](const parser::OmpNothingDirective &c) {
-                                   return llvm::omp::OMPD_nothing;
-                                 }},
-                c.u);
-          },
           [](const parser::OpenMPExecutableAllocate &c) {
             return llvm::omp::OMPD_allocate;
           },
@@ -426,6 +416,16 @@ extractOmpDirective(const parser::OpenMPConstruct &ompConstruct) {
                     [](const parser::OpenMPDepobjConstruct &c) {
                       return llvm::omp::OMPD_depobj;
                     }},
+                c.u);
+          },
+          [](const parser::OpenMPUtilityConstruct &c) {
+            return common::visit(
+                common::visitors{[](const parser::OmpErrorDirective &c) {
+                                   return llvm::omp::OMPD_error;
+                                 },
+                                 [](const parser::OmpNothingDirective &c) {
+                                   return llvm::omp::OMPD_nothing;
+                                 }},
                 c.u);
           }},
       ompConstruct.u);
@@ -556,7 +556,6 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
     case OMPD_distribute_parallel_do:
     case OMPD_distribute_parallel_do_simd:
       cp.processNumThreads(stmtCtx, hostInfo.ops);
-      [[fallthrough]];
     case OMPD_distribute:
     case OMPD_distribute_simd:
       cp.processCollapse(loc, eval, hostInfo.ops, hostInfo.iv);
@@ -582,7 +581,6 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       cp.processNumTeams(stmtCtx, hostInfo.ops);
       break;
 
-
     case OMPD_teams_loop:
       cp.processThreadLimit(stmtCtx, hostInfo.ops);
       [[fallthrough]];
@@ -594,11 +592,11 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       break;
 
     // Standalone 'target' case.
-    case OMPD_target:
+    case OMPD_target: {
       processSingleNestedIf(
           [](Directive nestedDir) { return topTeamsSet.test(nestedDir); });
       break;
-
+    }
     default:
       break;
     }
@@ -610,6 +608,7 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
   assert(ompEval &&
          llvm::omp::allTargetSet.test(extractOmpDirective(*ompEval)) &&
          "expected TARGET construct evaluation");
+  (void)ompEval;
 
   // Use the whole list of clauses passed to the construct here, rather than the
   // ones only applied to omp.target.
@@ -1774,6 +1773,7 @@ static void genTeamsClauses(
   }
 
   cp.processReduction(loc, clauseOps, reductionSyms);
+  // TODO Support delayed privatization.
 }
 
 static void genWsloopClauses(
@@ -2468,8 +2468,7 @@ genTeamsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     genEntryBlock(converter.getFirOpBuilder(), args, op->getRegion(0));
     bindEntryBlockArgs(
         converter, llvm::cast<mlir::omp::BlockArgOpenMPOpInterface>(op), args);
-    return llvm::to_vector(llvm::concat<const semantics::Symbol *const>(
-        args.priv.syms, args.reduction.syms));
+    return llvm::to_vector(args.getSyms());
   };
 
   auto teamsOp = genOpWithBody<mlir::omp::TeamsOp>(
@@ -2604,12 +2603,11 @@ static void genStandaloneSimd(lower::AbstractConverter &converter,
   genSimdClauses(converter, semaCtx, item->clauses, loc, simdClauseOps,
                  simdReductionSyms);
 
-  // TODO: Support delayed privatization.
   DataSharingProcessor dsp(converter, semaCtx, item->clauses, eval,
                            /*shouldCollectPreDeterminedSymbols=*/true,
-                           /*useDelayedPrivatization=*/false, symTable);
+                           enableDelayedPrivatization, symTable);
   dsp.processStep1();
-  dsp.processStep2();
+  dsp.processStep2(&simdClauseOps);
 
   mlir::omp::LoopNestOperands loopNestClauseOps;
   llvm::SmallVector<const semantics::Symbol *> iv;
@@ -2617,7 +2615,8 @@ static void genStandaloneSimd(lower::AbstractConverter &converter,
                      loopNestClauseOps, iv);
 
   EntryBlockArgs simdArgs;
-  // TODO: Add private syms and vars.
+  simdArgs.priv.syms = dsp.getDelayedPrivSymbols();
+  simdArgs.priv.vars = simdClauseOps.privateVars;
   simdArgs.reduction.syms = simdReductionSyms;
   simdArgs.reduction.vars = simdClauseOps.reductionVars;
   auto simdOp =

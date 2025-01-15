@@ -58,7 +58,8 @@ def BlockArgOpenMPOpInterface : OpInterface<"BlockArgOpenMPOpInterface"> {
       return 0;
     }]>,
 
-    // Unified access methods for clause-associated entry block arguments.
+    // Unified access methods for start indices of clause-associated entry block
+    // arguments.
     InterfaceMethod<"Get start index of block arguments defined by `host_eval`.",
                     "unsigned", "getHostEvalBlockArgsStart", (ins), [{
       return 0;
@@ -100,6 +101,7 @@ def BlockArgOpenMPOpInterface : OpInterface<"BlockArgOpenMPOpInterface"> {
       return iface.getUseDeviceAddrBlockArgsStart() + $_op.numUseDeviceAddrBlockArgs();
     }]>,
 
+    // Unified access methods for clause-associated entry block arguments.
     InterfaceMethod<"Get block arguments defined by `host_eval`.",
                     "::llvm::MutableArrayRef<::mlir::BlockArgument>",
                     "getHostEvalBlockArgs", (ins), [{

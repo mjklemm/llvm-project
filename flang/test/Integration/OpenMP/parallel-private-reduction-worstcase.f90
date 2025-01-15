@@ -96,9 +96,12 @@ end subroutine
 
 ! CHECK:       omp.region.cont14:                                ; preds = %omp.private.copy17
 ! CHECK-NEXT:    %{{.*}} = phi ptr
+! CHECK-NEXT:    br label %omp.par.region
+
+! CHECK:       omp.par.region:                                   ; preds = %omp.region.cont14
 ! CHECK-NEXT:    br label %omp.reduction.init
 
-! CHECK:       omp.reduction.init:                               ; preds = %omp.region.cont14
+! CHECK:       omp.reduction.init:                               ; preds = %omp.par.region
 !                [deffered stores for results of reduction alloc regions]
 ! CHECK:         br label %[[VAL_96:.*]]
 
@@ -132,12 +135,9 @@ end subroutine
 
 ! CHECK:       omp.region.cont22:                                ; preds = %omp.reduction.neutral26
 ! CHECK-NEXT:    %{{.*}} = phi ptr
-! CHECK-NEXT:    br label %omp.par.region
-
-! CHECK:       omp.par.region:                                   ; preds = %omp.region.cont22
 ! CHECK-NEXT:    br label %omp.par.region28
 
-! CHECK:       omp.par.region28:                                 ; preds = %omp.par.region
+! CHECK:       omp.par.region28:                                 ; preds = %omp.region.cont22
 !                [call SUM runtime function]
 !                [if (sum(a) == 1)]
 ! CHECK:         br i1 %{{.*}}, label %omp.par.region29, label %omp.par.region30

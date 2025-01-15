@@ -50,9 +50,9 @@ struct EntryBlockArgs {
   }
 
   auto getSyms() const {
-    return llvm::concat<const Fortran::semantics::Symbol *const>(
-        inReduction.syms, map.syms, priv.syms, reduction.syms,
-        taskReduction.syms, useDeviceAddr.syms, useDevicePtr.syms);
+    return llvm::concat<const semantics::Symbol *const>(inReduction.syms,
+        map.syms, priv.syms, reduction.syms, taskReduction.syms,
+        useDeviceAddr.syms, useDevicePtr.syms);
   }
 
   auto getVars() const {
