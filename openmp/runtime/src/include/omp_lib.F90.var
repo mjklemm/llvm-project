@@ -40,6 +40,7 @@
         integer, parameter, public :: omp_alloctrait_val_kind = c_intptr_t
         integer, parameter, public :: omp_interop_kind = c_intptr_t
         integer, parameter, public :: omp_interop_fr_kind = omp_integer_kind
+        integer, parameter, public :: ompx_dim_kind = c_int
 
         type omp_alloctrait
           integer(kind=omp_alloctrait_key_kind) key
@@ -88,6 +89,7 @@
         public :: omp_pause_resource_kind
         public :: omp_depend_kind
         public :: omp_event_handle_kind
+        public :: ompx_dim_kind
 
         integer (kind=omp_integer_kind), parameter, public :: openmp_version    = @LIBOMP_OMP_YEAR_MONTH@
         integer (kind=omp_integer_kind), parameter, public :: kmp_version_major = @LIBOMP_VERSION_MAJOR@
@@ -203,6 +205,10 @@
         integer (kind=omp_interop_fr_kind), parameter, public :: omp_ifr_last = 7
 
         integer (kind=omp_interop_kind), parameter, public :: omp_interop_none = 0
+
+        integer (kind=ompx_dim_kind), parameter, public :: ompx_dim_x = 0
+        integer (kind=ompx_dim_kind), parameter, public :: ompx_dim_y = 1
+        integer (kind=ompx_dim_kind), parameter, public :: ompx_dim_z = 2
 
         interface
 
@@ -961,7 +967,7 @@
               function ompx_##name(dim) bind(c) ;\
                 use omp_lib_kinds ; \
                 use iso_c_binding; \
-                integer (kind=c_int), value :: dim; \
+                integer (kind=ompx_dim_kind), value :: dim; \
                 integer (kind=omp_integer_kind) ompx_##name ;\
               end function ompx_##name
           _TGT_KERNEL_LANGUAGE(thread_id)
