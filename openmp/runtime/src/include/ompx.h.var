@@ -58,6 +58,9 @@ enum {
   ompx_dim_z = 2,
 };
 
+// TODO: Disabling these function definitions to move them to kmp_ompx.cpp
+//       to be able to import them as linkable symbols via Fortran module.
+#if 0
 // TODO: The following implementation is for host fallback. We need to disable
 // generation of host fallback in kernel language mode.
 #pragma omp begin declare variant match(device = {kind(cpu)})
@@ -74,6 +77,7 @@ _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_C(block_id, 0)
 _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_C(grid_dim, 1)
 #undef _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_C
 ///}
+#endif
 
 /// ompx_{sync_block}_{,divergent}
 ///{
