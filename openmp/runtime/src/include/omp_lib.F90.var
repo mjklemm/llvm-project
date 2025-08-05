@@ -40,6 +40,7 @@
         integer, parameter, public :: omp_alloctrait_val_kind = c_intptr_t
         integer, parameter, public :: omp_interop_kind = c_intptr_t
         integer, parameter, public :: omp_interop_fr_kind = omp_integer_kind
+        integer, parameter, public :: omp_access_kind = omp_integer_kind
 
         type omp_alloctrait
           integer(kind=omp_alloctrait_key_kind) key
@@ -214,6 +215,9 @@
         integer (kind=omp_interop_fr_kind), parameter, public :: omp_ifr_last = 7
 
         integer (kind=omp_interop_kind), parameter, public :: omp_interop_none = 0
+
+        integer (kind=omp_access_kind), parameter, public :: omp_access_cgroup = 0
+        integer (kind=omp_access_kind), parameter, public :: omp_access_pteam = 1
 
         interface
 
@@ -904,6 +908,33 @@
             integer, intent(in) :: resources(*)
           end function omp_get_submemspace
 
+          type(c_ptr) function omp_get_dyn_groupprivate_ptr(offset,   &
+              is_fallback, access_group)
+            use, intrinsic :: iso_c_binding, only : c_ptr, c_size_t
+            use :: omp_lib_kinds
+            integer(kind=c_size_t), value, optional :: offset
+            logical, intent(out), optional :: is_fallback
+            integer (kind=omp_access_kind), value, optional :: access_group
+            !$omp declare target
+          end function
+
+          integer(kind=c_size_t) function omp_get_dyn_groupprivate_size(      &
+              access_group)
+            use, intrinsic :: iso_c_binding, only : c_size_t
+            use :: omp_lib_kinds
+            integer (kind=omp_access_kind), value, optional :: access_group
+            !$omp declare target
+          end function
+
+          integer(kind=c_size_t) function omp_get_groupprivate_limit(         &
+              device_num, access_group)
+            use, intrinsic :: iso_c_binding, only : c_size_t, c_int
+            use :: omp_lib_kinds
+            integer (kind=c_int), value :: device_num
+            integer (kind=omp_access_kind), value, optional :: access_group
+            !$omp declare target
+          end function
+
 !         ***
 !         *** kmp_* entry points
 !         ***
@@ -1150,6 +1181,9 @@
         public :: omp_realloc
         public :: omp_free
         public :: omp_in_explicit_task
+        public :: omp_get_dyn_groupprivate_ptr
+        public :: omp_get_dyn_groupprivate_size
+        public :: omp_get_groupprivate_limit
         public :: kmp_set_stacksize
         public :: kmp_set_stacksize_s
         public :: kmp_set_blocktime

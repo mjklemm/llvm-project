@@ -56,6 +56,8 @@
       parameter(omp_interop_kind=int_ptr_kind())
       integer omp_interop_fr_kind
       parameter(omp_interop_fr_kind=omp_integer_kind)
+      integer omp_access_kind
+      parameter(omp_access_kind=omp_integer_kind)
 
       integer(kind=omp_integer_kind)openmp_version
       parameter(openmp_version=@LIBOMP_OMP_YEAR_MONTH@)
@@ -290,6 +292,11 @@
 
       integer(kind=omp_interop_kind)omp_interop_none
       parameter(omp_interop_none=0)
+
+      integer(kind=omp_access_kind)omp_access_cgroup
+      parameter(omp_access_cgroup=0)
+      integer(kind=omp_access_kind)omp_access_pteam
+      parameter(omp_access_pteam=1)
 
       interface
 
@@ -976,6 +983,29 @@
           integer, intent(in) :: resources(*)
         end function omp_get_submemspace
 
+        type(c_ptr) function omp_get_dyn_groupprivate_ptr(offset,
+     &      is_fallback, access_group)
+          use, intrinsic :: iso_c_binding, only : c_ptr, c_size_t
+          import
+          integer(kind=c_size_t), value, optional :: offset
+          logical, intent(out), optional :: is_fallback
+          integer (kind=omp_access_kind), value, optional :: access_group
+        end function
+
+        integer(kind=c_size_t) function omp_get_dyn_groupprivate_size
+     &      (access_group)
+          use, intrinsic :: iso_c_binding, only : c_size_t
+          import
+          integer (kind=omp_access_kind), value, optional :: access_group
+        end function
+
+        integer(kind=c_size_t) function omp_get_groupprivate_limit(
+     &      device_num, access_group)
+          use, intrinsic :: iso_c_binding, only : c_size_t, c_int
+          import
+          integer (kind=c_int), value :: device_num
+          integer (kind=omp_access_kind), value, optional :: access_group
+        end function
 
 !       ***
 !       *** kmp_* entry points
@@ -1263,6 +1293,9 @@
 !$omp declare target(omp_get_affinity_format )
 !$omp declare target(omp_display_affinity )
 !$omp declare target(omp_capture_affinity )
+!$omp declare target(omp_get_dyn_groupprivate_ptr )
+!$omp declare target(omp_get_dyn_groupprivate_size )
+!$omp declare target(omp_get_groupprivate_limit )
 !$omp declare target(kmp_set_stacksize )
 !$omp declare target(kmp_set_stacksize_s )
 !$omp declare target(kmp_set_blocktime )
