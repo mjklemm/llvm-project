@@ -14249,19 +14249,59 @@ StmtResult SemaOpenMP::ActOnOpenMPTargetTeamsDirective(
     return C->getClauseKind() == OMPC_ompx_bare;
   });
 
+  const OMPNumTeamsClause *NumTeamsClause = nullptr;
+  const OMPThreadLimitClause *ThreadLimitClause = nullptr;
+  llvm::any_of(Clauses, [&](const OMPClause *C) {
+    if (C->getClauseKind() == OMPC_num_teams) {
+      NumTeamsClause = cast<OMPNumTeamsClause>(C);
+      return ThreadLimitClause != nullptr;
+    } else if (C->getClauseKind() == OMPC_thread_limit) {
+      ThreadLimitClause = cast<OMPThreadLimitClause>(C);
+      return NumTeamsClause != nullptr;
+    }
+    return false;
+  });
+
+  unsigned NumExprsInNumTeams = 1;
+  if (NumTeamsClause && NumTeamsClause->getDims()) {
+    llvm::APSInt Num;
+    (void)VerifyPositiveIntegerConstantInClause(
+        NumTeamsClause->getDims(), OMPC_num_teams, true, false, &Num);
+    NumExprsInNumTeams = Num.getExtValue();
+  }
+
+  unsigned NumExprsInThreadLimit = 1;
+  if (ThreadLimitClause && ThreadLimitClause->getDims()) {
+    llvm::APSInt Num;
+    (void)VerifyPositiveIntegerConstantInClause(
+        ThreadLimitClause->getDims(), OMPC_thread_limit, true, false, &Num);
+    NumExprsInThreadLimit = Num.getExtValue();
+  }
+
   if (HasBareClause && !HasThreadLimitAndNumTeamsClause) {
     Diag(BareClause->getBeginLoc(), diag::err_ompx_bare_no_grid);
     return StmtError();
   }
 
-  unsigned ClauseMaxNumExprs = HasBareClause ? 3 : 1;
-  unsigned DiagNo = HasBareClause
-                        ? diag::err_ompx_more_than_three_expr_not_allowed
-                        : diag::err_omp_multi_expr_not_allowed;
-  if (!checkNumExprsInClause<OMPNumTeamsClause>(*this, Clauses,
-                                                ClauseMaxNumExprs, DiagNo) ||
-      !checkNumExprsInClause<OMPThreadLimitClause>(*this, Clauses,
-                                                   ClauseMaxNumExprs, DiagNo))
+  NumExprsInNumTeams = HasBareClause ? 3 : NumExprsInNumTeams;
+  NumExprsInThreadLimit = HasBareClause ? 3 : NumExprsInThreadLimit;
+  if (NumExprsInNumTeams > 3) {
+    Diag(NumTeamsClause->getBeginLoc(), diag::err_omp_max_supported_dims)
+        << getOpenMPClauseNameForDiag(OMPC_num_teams);
+    return StmtError();
+  }
+  if (NumExprsInThreadLimit > 3) {
+    Diag(ThreadLimitClause->getBeginLoc(), diag::err_omp_max_supported_dims)
+        << getOpenMPClauseNameForDiag(OMPC_thread_limit);
+    return StmtError();
+  }
+
+  if (!checkNumExprsInClause<OMPNumTeamsClause>(
+          *this, Clauses, NumExprsInNumTeams,
+          diag::err_omp_unexpected_num_exprs) ||
+      !checkNumExprsInClause<OMPThreadLimitClause>(
+          *this, Clauses, NumExprsInThreadLimit,
+          diag::err_omp_unexpected_num_exprs))
     return StmtError();
 
   return OMPTargetTeamsDirective::Create(getASTContext(), StartLoc, EndLoc,
@@ -16935,7 +16975,7 @@ OMPClause *SemaOpenMP::ActOnOpenMPNumThreadsClause(
 
 ExprResult SemaOpenMP::VerifyPositiveIntegerConstantInClause(
     Expr *E, OpenMPClauseKind CKind, bool StrictlyPositive,
-    bool SuppressExprDiags) {
+    bool SuppressExprDiags, llvm::APSInt *ResultPtr) {
   if (!E)
     return ExprError();
   if (E->isValueDependent() || E->isTypeDependent() ||
@@ -16989,6 +17029,10 @@ ExprResult SemaOpenMP::VerifyPositiveIntegerConstantInClause(
     DSAStack->setAssociatedLoops(Result.getExtValue());
   else if (CKind == OMPC_ordered)
     DSAStack->setAssociatedLoops(Result.getExtValue());
+
+  if (ResultPtr)
+    *ResultPtr = Result;
+
   return ICE;
 }
 
@@ -18774,10 +18818,12 @@ OMPClause *SemaOpenMP::ActOnOpenMPVarListClause(OpenMPClauseKind Kind,
         ExtraModifierLoc, ColonLoc, VarList, StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_num_teams:
-    Res = ActOnOpenMPNumTeamsClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPNumTeamsClause(VarList, Data.ExtraModifierExpr, StartLoc,
+                                    LParenLoc, EndLoc);
     break;
   case OMPC_thread_limit:
-    Res = ActOnOpenMPThreadLimitClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPThreadLimitClause(VarList, Data.ExtraModifierExpr,
+                                       StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_if:
   case OMPC_depobj:
@@ -23760,11 +23806,20 @@ const ValueDecl *SemaOpenMP::getOpenMPDeclareMapperVarName() const {
 }
 
 OMPClause *SemaOpenMP::ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> VarList,
+                                                 Expr *Dims,
                                                  SourceLocation StartLoc,
                                                  SourceLocation LParenLoc,
                                                  SourceLocation EndLoc) {
   if (VarList.empty())
     return nullptr;
+
+  if (Dims) {
+    ExprResult DimsRes =
+        VerifyPositiveIntegerConstantInClause(Dims, OMPC_num_teams);
+    if (DimsRes.isInvalid())
+      return nullptr;
+    Dims = DimsRes.get();
+  }
 
   for (Expr *ValExpr : VarList) {
     // OpenMP [teams Constrcut, Restrictions]
@@ -23779,7 +23834,7 @@ OMPClause *SemaOpenMP::ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> VarList,
       DKind, OMPC_num_teams, getLangOpts().OpenMP);
   if (CaptureRegion == OMPD_unknown || SemaRef.CurContext->isDependentContext())
     return OMPNumTeamsClause::Create(getASTContext(), CaptureRegion, StartLoc,
-                                     LParenLoc, EndLoc, VarList,
+                                     LParenLoc, EndLoc, VarList, Dims,
                                      /*PreInit=*/nullptr);
 
   llvm::MapVector<const Expr *, DeclRefExpr *> Captures;
@@ -23792,15 +23847,24 @@ OMPClause *SemaOpenMP::ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> VarList,
 
   Stmt *PreInit = buildPreInits(getASTContext(), Captures);
   return OMPNumTeamsClause::Create(getASTContext(), CaptureRegion, StartLoc,
-                                   LParenLoc, EndLoc, Vars, PreInit);
+                                   LParenLoc, EndLoc, Vars, Dims, PreInit);
 }
 
 OMPClause *SemaOpenMP::ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> VarList,
+                                                    Expr *Dims,
                                                     SourceLocation StartLoc,
                                                     SourceLocation LParenLoc,
                                                     SourceLocation EndLoc) {
   if (VarList.empty())
     return nullptr;
+
+  if (Dims) {
+    ExprResult DimsRes =
+        VerifyPositiveIntegerConstantInClause(Dims, OMPC_thread_limit);
+    if (DimsRes.isInvalid())
+      return nullptr;
+    Dims = DimsRes.get();
+  }
 
   for (Expr *ValExpr : VarList) {
     // OpenMP [teams Constrcut, Restrictions]
@@ -23816,6 +23880,7 @@ OMPClause *SemaOpenMP::ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> VarList,
   if (CaptureRegion == OMPD_unknown || SemaRef.CurContext->isDependentContext())
     return OMPThreadLimitClause::Create(getASTContext(), CaptureRegion,
                                         StartLoc, LParenLoc, EndLoc, VarList,
+                                        Dims,
                                         /*PreInit=*/nullptr);
 
   llvm::MapVector<const Expr *, DeclRefExpr *> Captures;
@@ -23828,7 +23893,7 @@ OMPClause *SemaOpenMP::ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> VarList,
 
   Stmt *PreInit = buildPreInits(getASTContext(), Captures);
   return OMPThreadLimitClause::Create(getASTContext(), CaptureRegion, StartLoc,
-                                      LParenLoc, EndLoc, Vars, PreInit);
+                                      LParenLoc, EndLoc, Vars, Dims, PreInit);
 }
 
 OMPClause *SemaOpenMP::ActOnOpenMPPriorityClause(Expr *Priority,

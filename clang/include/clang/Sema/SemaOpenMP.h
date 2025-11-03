@@ -112,10 +112,9 @@ public:
     return !OMPDeclareVariantScopes.empty();
   }
 
-  ExprResult
-  VerifyPositiveIntegerConstantInClause(Expr *Op, OpenMPClauseKind CKind,
-                                        bool StrictlyPositive = true,
-                                        bool SuppressExprDiags = false);
+  ExprResult VerifyPositiveIntegerConstantInClause(
+      Expr *Op, OpenMPClauseKind CKind, bool StrictlyPositive = true,
+      bool SuppressExprDiags = false, llvm::APSInt *Result = nullptr);
 
   /// Given the potential call expression \p Call, determine if there is a
   /// specialization via the OpenMP declare variant mechanism available. If
@@ -1171,8 +1170,9 @@ public:
     SourceLocation RLoc;
     CXXScopeSpec ReductionOrMapperIdScopeSpec;
     DeclarationNameInfo ReductionOrMapperId;
-    int ExtraModifier = -1; ///< Additional modifier for linear, map, depend or
-                            ///< lastprivate clause.
+    int ExtraModifier = -1; ///< Additional modifier for linear, map, depend, or
+                            ///< lastprivate or num_teams clause.
+    Expr *ExtraModifierExpr = nullptr;
     int OriginalSharingModifier = 0; // Default is shared
     int NeedDevicePtrModifier = 0;
     SourceLocation NeedDevicePtrModifierLoc;
@@ -1324,12 +1324,12 @@ public:
       const OMPVarListLocTy &Locs, bool NoDiagnose = false,
       ArrayRef<Expr *> UnresolvedMappers = {});
   /// Called on well-formed 'num_teams' clause.
-  OMPClause *ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> VarList,
+  OMPClause *ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> VarList, Expr *DimsExpr,
                                        SourceLocation StartLoc,
                                        SourceLocation LParenLoc,
                                        SourceLocation EndLoc);
   /// Called on well-formed 'thread_limit' clause.
-  OMPClause *ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> VarList,
+  OMPClause *ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> VarList, Expr *Dims,
                                           SourceLocation StartLoc,
                                           SourceLocation LParenLoc,
                                           SourceLocation EndLoc);

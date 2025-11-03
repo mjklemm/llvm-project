@@ -537,11 +537,12 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                             KernelArgs.ThreadLimit[2]};
   uint32_t NumBlocks[3] = {KernelArgs.NumTeams[0], KernelArgs.NumTeams[1],
                            KernelArgs.NumTeams[2]};
-  if (!isBareMode()) {
+  if (!isBareMode() && !NumThreads[1] && !NumThreads[2])
     NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
+
+  if (!isBareMode() && !NumBlocks[1] && !NumBlocks[2])
     NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
                                 NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
-  }
 
   // Record the kernel description after we modified the argument count and num
   // blocks/threads.

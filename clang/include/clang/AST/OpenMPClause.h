@@ -6813,6 +6813,9 @@ class OMPNumTeamsClause final
   /// Location of '('.
   SourceLocation LParenLoc;
 
+  /// Expression for the dims modifier.
+  Expr *DimsExpr = nullptr;
+
   OMPNumTeamsClause(const ASTContext &C, SourceLocation StartLoc,
                     SourceLocation LParenLoc, SourceLocation EndLoc, unsigned N)
       : OMPVarListClause(llvm::omp::OMPC_num_teams, StartLoc, LParenLoc, EndLoc,
@@ -6837,7 +6840,7 @@ public:
   static OMPNumTeamsClause *
   Create(const ASTContext &C, OpenMPDirectiveKind CaptureRegion,
          SourceLocation StartLoc, SourceLocation LParenLoc,
-         SourceLocation EndLoc, ArrayRef<Expr *> VL, Stmt *PreInit);
+         SourceLocation EndLoc, ArrayRef<Expr *> VL, Expr *Dims, Stmt *PreInit);
 
   /// Creates an empty clause with \a N variables.
   ///
@@ -6853,6 +6856,10 @@ public:
 
   /// Return NumTeams expressions.
   ArrayRef<Expr *> getNumTeams() { return getVarRefs(); }
+
+  void setDims(Expr *E) { DimsExpr = E; }
+
+  Expr *getDims() const { return DimsExpr; }
 
   /// Return NumTeams expressions.
   ArrayRef<Expr *> getNumTeams() const {
@@ -6905,6 +6912,9 @@ class OMPThreadLimitClause final
   /// Location of '('.
   SourceLocation LParenLoc;
 
+  /// Expression for the dims modifier.
+  Expr *DimsExpr = nullptr;
+
   OMPThreadLimitClause(const ASTContext &C, SourceLocation StartLoc,
                        SourceLocation LParenLoc, SourceLocation EndLoc,
                        unsigned N)
@@ -6930,7 +6940,7 @@ public:
   static OMPThreadLimitClause *
   Create(const ASTContext &C, OpenMPDirectiveKind CaptureRegion,
          SourceLocation StartLoc, SourceLocation LParenLoc,
-         SourceLocation EndLoc, ArrayRef<Expr *> VL, Stmt *PreInit);
+         SourceLocation EndLoc, ArrayRef<Expr *> VL, Expr *Dims, Stmt *PreInit);
 
   /// Creates an empty clause with \a N variables.
   ///
@@ -6951,6 +6961,10 @@ public:
   ArrayRef<Expr *> getThreadLimit() const {
     return const_cast<OMPThreadLimitClause *>(this)->getThreadLimit();
   }
+
+  void setDims(Expr *E) { DimsExpr = E; }
+
+  Expr *getDims() const { return DimsExpr; }
 
   child_range children() {
     return child_range(reinterpret_cast<Stmt **>(varlist_begin()),
