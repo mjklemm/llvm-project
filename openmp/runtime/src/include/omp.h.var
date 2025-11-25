@@ -250,6 +250,11 @@
     extern void * __KAI_KMPC_CONVENTION omp_target_memset(void *, int, size_t, int);
     extern void * __KAI_KMPC_CONVENTION omp_target_memset_async(void *, int, size_t, int, int, omp_depend_t *);
 
+    extern int __KAI_KMPC_CONVENTION omp_get_num_threads_dim(int);
+    extern int __KAI_KMPC_CONVENTION omp_get_thread_num_dim(int);
+    extern int __KAI_KMPC_CONVENTION omp_get_num_teams_dim(int);
+    extern int __KAI_KMPC_CONVENTION omp_get_team_num_dim(int);
+
     /*!
      * The `omp_get_mapped_ptr` routine returns the device pointer that is associated with a host pointer for a given device.
      */

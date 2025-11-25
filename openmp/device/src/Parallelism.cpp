@@ -45,10 +45,10 @@ using namespace ompx;
 
 namespace {
 
-uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
+uint32_t determineNumberOfThreads(int32_t NumThreadsClause, int Dim = mapping::DIM_X) {
   uint32_t NThreadsICV =
       NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
-  uint32_t NumThreads = mapping::getMaxTeamThreads();
+  uint32_t NumThreads = mapping::getMaxTeamThreads(Dim);
 
   if (NThreadsICV != 0 && NThreadsICV < NumThreads)
     NumThreads = NThreadsICV;
@@ -86,10 +86,18 @@ extern "C" {
                                                    int32_t num_threads,
                                                    void *fn, void **args,
                                                    const int64_t nargs) {
-  uint32_t TId = mapping::getThreadIdInBlock();
-  uint32_t NumThreads = determineNumberOfThreads(num_threads);
-  uint32_t PTeamSize =
-      NumThreads == mapping::getMaxTeamThreads() ? 0 : NumThreads;
+  uint32_t TId = mapping::getTotalThreadIdInBlock();
+
+  uint32_t NumThreadsDimX = determineNumberOfThreads(num_threads, mapping::DIM_X);
+  uint32_t NumThreadsDimY = determineNumberOfThreads(num_threads, mapping::DIM_Y);
+  uint32_t NumThreadsDimZ = determineNumberOfThreads(num_threads, mapping::DIM_Z);
+  uint32_t NumThreads = NumThreadsDimX * NumThreadsDimY * NumThreadsDimZ;
+  uint32_t PTeamSizeDimX = NumThreadsDimX == mapping::getMaxTeamThreads(mapping::DIM_X) ? 0 : NumThreadsDimX;
+  uint32_t PTeamSizeDimY = NumThreadsDimY == mapping::getMaxTeamThreads(mapping::DIM_Y) ? 0 : NumThreadsDimY;
+  uint32_t PTeamSizeDimZ = NumThreadsDimZ == mapping::getMaxTeamThreads(mapping::DIM_Z) ? 0 : NumThreadsDimZ;
+  //uint32_t PTeamSize = NumThreads == mapping::getMaxTeamThreads() ? 0 : NumThreads;
+  uint32_t PTeamSize = NumThreads;
+
   // Avoid the race between the read of the `icv::Level` above and the write
   // below by synchronizing all threads here.
   synchronize::threadsAligned(atomic::seq_cst);
@@ -97,6 +105,15 @@ extern "C" {
     // Note that the order here is important. `icv::Level` has to be updated
     // last or the other updates will cause a thread specific state to be
     // created.
+    state::ValueRAII ParallelTeamSizeDimXRAII(state::ParallelTeamSizeDimX, PTeamSizeDimX,
+                                          1u, TId == 0, ident,
+                                          /*ForceTeamState=*/true);
+    state::ValueRAII ParallelTeamSizeDimYRAII(state::ParallelTeamSizeDimY, PTeamSizeDimY,
+                                          1u, TId == 0, ident,
+                                          /*ForceTeamState=*/true);
+    state::ValueRAII ParallelTeamSizeDimZRAII(state::ParallelTeamSizeDimZ, PTeamSizeDimZ,
+                                          1u, TId == 0, ident,
+                                          /*ForceTeamState=*/true);
     state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, PTeamSize,
                                           1u, TId == 0, ident,
                                           /*ForceTeamState=*/true);
@@ -109,6 +126,12 @@ extern "C" {
     // team state properly.
     synchronize::threadsAligned(atomic::acq_rel);
 
+    state::ParallelTeamSizeDimX.assert_eq(PTeamSizeDimX, ident,
+                                      /*ForceTeamState=*/true);
+    state::ParallelTeamSizeDimY.assert_eq(PTeamSizeDimY, ident,
+                                      /*ForceTeamState=*/true);
+    state::ParallelTeamSizeDimZ.assert_eq(PTeamSizeDimZ, ident,
+                                      /*ForceTeamState=*/true);
     state::ParallelTeamSize.assert_eq(PTeamSize, ident,
                                       /*ForceTeamState=*/true);
     icv::ActiveLevel.assert_eq(1u, ident, /*ForceTeamState=*/true);
@@ -118,7 +141,7 @@ extern "C" {
     // assumptions above.
     synchronize::threadsAligned(atomic::relaxed);
 
-    if (!PTeamSize || TId < PTeamSize)
+    if (TId < PTeamSize)
       invokeMicrotask(TId, 0, fn, args, nargs);
 
     // Synchronize all threads at the end of a parallel region.
@@ -131,6 +154,9 @@ extern "C" {
   synchronize::threadsAligned(atomic::acq_rel);
 
   state::ParallelTeamSize.assert_eq(1u, ident, /*ForceTeamState=*/true);
+  state::ParallelTeamSizeDimX.assert_eq(1u, ident, /*ForceTeamState=*/true);
+  state::ParallelTeamSizeDimY.assert_eq(1u, ident, /*ForceTeamState=*/true);
+  state::ParallelTeamSizeDimZ.assert_eq(1u, ident, /*ForceTeamState=*/true);
   icv::ActiveLevel.assert_eq(0u, ident, /*ForceTeamState=*/true);
   icv::Level.assert_eq(0u, ident, /*ForceTeamState=*/true);
 
@@ -287,7 +313,7 @@ __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
 
   // Set to true for workers participating in the parallel region.
   uint32_t TId = mapping::getThreadIdInBlock();
-  bool ThreadIsActive = TId < state::getEffectivePTeamSize();
+  bool ThreadIsActive = TId < state::getTotalEffectivePTeamSize();
   return ThreadIsActive;
 }
 

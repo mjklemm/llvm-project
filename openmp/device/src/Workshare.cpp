@@ -469,7 +469,7 @@ static DynamicScheduleTracker *pushDST() {
     // Allocate global memory array of pointers to DST structs:
     if (mapping::isMainThreadInGenericMode() || ThreadIndex == 0)
       ThreadDST = static_cast<DynamicScheduleTracker **>(
-          memory::allocGlobal(mapping::getNumberOfThreadsInBlock() *
+          memory::allocGlobal(mapping::getNumberOfThreadsInBlock(mapping::DIM_X) *
                                   sizeof(DynamicScheduleTracker *),
                               "new ThreadDST array"));
     synchronize::threads(atomic::seq_cst);
@@ -838,8 +838,8 @@ public:
     Ty TId = 0;
 
     // All teams need to participate.
-    Ty NumBlocks = mapping::getNumberOfBlocksInKernel();
-    Ty BId = mapping::getBlockIdInKernel();
+    Ty NumBlocks = mapping::getTotalNumberOfBlocksInKernel();
+    Ty BId = mapping::getTotalBlockIdInKernel();
 
     // If the block chunk is not specified we pick a default now.
     if (BlockChunk == 0)
@@ -893,8 +893,8 @@ public:
     Ty TId = mapping::getThreadIdInBlock();
 
     // All teams need to participate.
-    Ty NumBlocks = mapping::getNumberOfBlocksInKernel();
-    Ty BId = mapping::getBlockIdInKernel();
+    Ty NumBlocks = mapping::getTotalNumberOfBlocksInKernel();
+    Ty BId = mapping::getTotalBlockIdInKernel();
 
     // If the block chunk is not specified we pick a default now.
     if (BlockChunk == 0)

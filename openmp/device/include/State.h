@@ -82,6 +82,7 @@ struct TeamStateTy {
   ///}
 
   uint32_t ParallelTeamSize;
+  uint32_t ParallelTeamSizeDim[3];
   uint32_t HasThreadState;
   ParallelRegionFnTy ParallelRegionFnVar;
 };
@@ -136,6 +137,9 @@ enum ValueKind {
   VK_RunSchedChunk,
   VK_ParallelRegionFn,
   VK_ParallelTeamSize,
+  VK_ParallelTeamSizeDimX,
+  VK_ParallelTeamSizeDimY,
+  VK_ParallelTeamSizeDimZ,
   VK_HasThreadState,
 };
 
@@ -211,6 +215,12 @@ lookup32(ValueKind Kind, bool IsReadonly, IdentTy *Ident, bool ForceTeamState) {
     lookupForModify32Impl(RunSchedChunkVar, Ident, ForceTeamState);
   case state::VK_ParallelTeamSize:
     return TeamState.ParallelTeamSize;
+  case state::VK_ParallelTeamSizeDimX:
+    return TeamState.ParallelTeamSizeDim[0];
+  case state::VK_ParallelTeamSizeDimY:
+    return TeamState.ParallelTeamSizeDim[1];
+  case state::VK_ParallelTeamSizeDimZ:
+    return TeamState.ParallelTeamSizeDim[2];
   case state::VK_HasThreadState:
     return TeamState.HasThreadState;
   default:
@@ -336,6 +346,10 @@ inline state::Value<uint32_t, state::VK_RunSchedChunk> RunSchedChunk;
 /// TODO
 inline state::Value<uint32_t, state::VK_ParallelTeamSize> ParallelTeamSize;
 
+inline state::Value<uint32_t, state::VK_ParallelTeamSizeDimX> ParallelTeamSizeDimX;
+inline state::Value<uint32_t, state::VK_ParallelTeamSizeDimY> ParallelTeamSizeDimY;
+inline state::Value<uint32_t, state::VK_ParallelTeamSizeDimZ> ParallelTeamSizeDimZ;
+
 /// TODO
 inline state::Value<uint32_t, state::VK_HasThreadState> HasThreadState;
 
@@ -348,7 +362,10 @@ void runAndCheckState(void(Func(void)));
 void assumeInitialState(bool IsSPMD);
 
 /// Return the value of the ParallelTeamSize ICV.
-int getEffectivePTeamSize();
+int getTotalEffectivePTeamSize();
+
+/// Return the value of the ParallelTeam ICV in a dimension.
+int getEffectivePTeamSize(int Dim);
 
 } // namespace state
 

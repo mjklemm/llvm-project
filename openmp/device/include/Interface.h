@@ -134,6 +134,14 @@ int omp_get_num_teams(void);
 
 int omp_get_team_num();
 
+int omp_get_num_threads_dim(int Dim);
+
+int omp_get_thread_num_dim(int Dim);
+
+int omp_get_team_num_dim(int Dim);
+
+int omp_get_num_teams_dim(int Dim);
+
 int omp_get_initial_device(void);
 
 void *llvm_omp_target_dynamic_shared_alloc();
