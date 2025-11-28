@@ -75,7 +75,7 @@ uint32_t getWarpIdInBlock();
 uint32_t getNumberOfWarpsInBlock();
 
 /// Return the thread Id in the block in a dimension, in [0, getNumberOfThreadsInBlock(Dim)).
-uint32_t getThreadIdInBlock(int32_t Dim = DIM_X);
+uint32_t getThreadIdInBlock(int32_t Dim);
 
 /// Return the thread Id in the block, in [0, getTotalNumberOfThreadsInBlock()).
 uint32_t getTotalThreadIdInBlock();
@@ -109,6 +109,8 @@ uint32_t getNumberOfThreadsInKernel();
 /// can be called by any thread other than the main one.
 uint32_t getMaxTeamThreads(int Dim = mapping::DIM_X);
 uint32_t getMaxTeamThreads(bool IsSPMD, int Dim = mapping::DIM_X);
+
+uint32_t getMaxTotalTeamThreads(bool IsSPMD);
 
 /// Return the number of processing elements on the device.
 uint32_t getNumberOfProcessorElements();

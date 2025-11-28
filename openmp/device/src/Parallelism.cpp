@@ -95,7 +95,6 @@ extern "C" {
   uint32_t PTeamSizeDimX = NumThreadsDimX == mapping::getMaxTeamThreads(mapping::DIM_X) ? 0 : NumThreadsDimX;
   uint32_t PTeamSizeDimY = NumThreadsDimY == mapping::getMaxTeamThreads(mapping::DIM_Y) ? 0 : NumThreadsDimY;
   uint32_t PTeamSizeDimZ = NumThreadsDimZ == mapping::getMaxTeamThreads(mapping::DIM_Z) ? 0 : NumThreadsDimZ;
-  //uint32_t PTeamSize = NumThreads == mapping::getMaxTeamThreads() ? 0 : NumThreads;
   uint32_t PTeamSize = NumThreads;
 
   // Avoid the race between the read of the `icv::Level` above and the write
@@ -170,7 +169,7 @@ extern "C" {
 __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
                    int32_t num_threads, int proc_bind, void *fn,
                    void *wrapper_fn, void **args, int64_t nargs) {
-  uint32_t TId = mapping::getThreadIdInBlock();
+  uint32_t TId = mapping::getTotalThreadIdInBlock();
 
   // Assert the parallelism level is zero if disabled by the user.
   ASSERT((config::mayUseNestedParallelism() || icv::Level == 0),
@@ -312,7 +311,7 @@ __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
     return false;
 
   // Set to true for workers participating in the parallel region.
-  uint32_t TId = mapping::getThreadIdInBlock();
+  uint32_t TId = mapping::getTotalThreadIdInBlock();
   bool ThreadIsActive = TId < state::getTotalEffectivePTeamSize();
   return ThreadIsActive;
 }
@@ -321,7 +320,7 @@ __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
   // In case we have modified an ICV for this thread before a ThreadState was
   // created. We drop it now to not contaminate the next parallel region.
   ASSERT(!mapping::isSPMDMode(), nullptr);
-  uint32_t TId = mapping::getThreadIdInBlock();
+  uint32_t TId = mapping::getTotalThreadIdInBlock();
   state::resetStateForThread(TId);
   ASSERT(!mapping::isSPMDMode(), nullptr);
 }

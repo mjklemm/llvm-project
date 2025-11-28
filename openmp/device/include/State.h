@@ -164,7 +164,7 @@ void resetStateForThread(uint32_t TId);
     if (OMP_LIKELY(ForceTeamState || !config::mayUseThreadStates() ||          \
                    !TeamState.HasThreadState))                                 \
       return TeamState.ICVState.Member;                                        \
-    uint32_t TId = mapping::getThreadIdInBlock();                              \
+    uint32_t TId = mapping::getTotalThreadIdInBlock();                         \
     if (OMP_UNLIKELY(!ThreadStates[TId])) {                                    \
       ThreadStates[TId] = reinterpret_cast<ThreadStateTy *>(                   \
           memory::allocGlobal(sizeof(ThreadStateTy),                           \
@@ -179,7 +179,7 @@ void resetStateForThread(uint32_t TId);
 // FIXME: https://github.com/llvm/llvm-project/issues/123241.
 #define lookupImpl(Member, ForceTeamState)                                     \
   {                                                                            \
-    auto TId = mapping::getThreadIdInBlock();                                  \
+    auto TId = mapping::getTotalThreadIdInBlock();                             \
     if (OMP_UNLIKELY(!ForceTeamState && config::mayUseThreadStates() &&        \
                      TeamState.HasThreadState && ThreadStates[TId]))           \
       return ThreadStates[TId]->ICVState.Member;                               \

@@ -46,7 +46,7 @@ inititializeRuntime(bool IsSPMD, KernelEnvironmentTy &KernelEnvironment,
 
 /// Simple generic state machine for worker threads.
 static void genericStateMachine(IdentTy *Ident) {
-  uint32_t TId = mapping::getThreadIdInBlock();
+  uint32_t TId = mapping::getTotalThreadIdInBlock();
 
   do {
     ParallelRegionFnTy WorkFn = nullptr;
@@ -122,10 +122,10 @@ int32_t __kmpc_target_init(KernelEnvironmentTy &KernelEnvironment,
   // main thread's warp, so none of its threads can ever be active worker
   // threads.
   if (UseGenericStateMachine &&
-      mapping::getThreadIdInBlock() < mapping::getMaxTeamThreads(IsSPMD))
+      mapping::getTotalThreadIdInBlock() < mapping::getMaxTotalTeamThreads(IsSPMD))
     genericStateMachine(KernelEnvironment.Ident);
 
-  return mapping::getThreadIdInBlock();
+  return mapping::getTotalThreadIdInBlock();
 }
 
 /// De-Initialization
