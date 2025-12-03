@@ -544,6 +544,9 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
     NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
                                 NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
 
+  if (!isSPMDMode() && !isBareMode() && (NumThreads[1] > 1 || NumThreads[2] > 1 || NumBlocks[1] > 1 || NumBlocks[2] > 1))
+    return Plugin::error(ErrorCode::UNSUPPORTED, "multi-dimensional grid only supported in SPMD or BARE mode");
+
   // Record the kernel description after we modified the argument count and num
   // blocks/threads.
   RecordReplayTy &RecordReplay = GenericDevice.Plugin.getRecordReplay();
