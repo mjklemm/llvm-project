@@ -3047,7 +3047,7 @@ public:
   LLVM_ABI static std::pair<int32_t, int32_t>
   readTeamBoundsForKernel(const Triple &T, Function &Kernel);
   LLVM_ABI static void writeTeamsForKernel(const Triple &T, Function &Kernel,
-                                           int32_t LB, int32_t UB);
+                                           int32_t LB, int32_t UBTotal, int32_t UB[3]);
   ///}
 
 private:

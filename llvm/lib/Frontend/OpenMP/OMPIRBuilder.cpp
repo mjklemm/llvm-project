@@ -6811,8 +6811,23 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
 
   // Manifest the launch configuration in the metadata matching the kernel
   // environment.
-  if (Attrs.MinTeams > 1 || Attrs.MaxTeams.front() > 0)
-    writeTeamsForKernel(T, *Kernel, Attrs.MinTeams, Attrs.MaxTeams.front());
+  int32_t MaxTeamsVal = -1;
+  int32_t MaxTeamsVals[3] = { 1, 1, 1 };
+  if (Attrs.MaxTeams[0] > 0) {
+    MaxTeamsVals[0] = Attrs.MaxTeams[0];
+    MaxTeamsVal = MaxTeamsVals[0];
+    if (Attrs.MaxTeams.size() > 1 && Attrs.MaxTeams[1] > 0) {
+      MaxTeamsVals[1] = Attrs.MaxTeams[1];
+      MaxTeamsVal *= MaxTeamsVals[1];
+      if (Attrs.MaxTeams.size() > 2 && Attrs.MaxTeams[2] > 0) {
+        MaxTeamsVals[2] = Attrs.MaxTeams[2];
+        MaxTeamsVal *= MaxTeamsVals[2];
+      }
+    }
+  }
+
+  if (MaxTeamsVal > 0)
+    writeTeamsForKernel(T, *Kernel, Attrs.MinTeams, MaxTeamsVal, MaxTeamsVals);
 
   // If MaxThreads not set, select the maximum between the default workgroup
   // size and the MinThreads value.
@@ -6827,7 +6842,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
   Constant *MinThreads = ConstantInt::getSigned(Int32, Attrs.MinThreads);
   Constant *MaxThreads = ConstantInt::getSigned(Int32, MaxThreadsVal);
   Constant *MinTeams = ConstantInt::getSigned(Int32, Attrs.MinTeams);
-  Constant *MaxTeams = ConstantInt::getSigned(Int32, Attrs.MaxTeams.front());
+  Constant *MaxTeams = ConstantInt::getSigned(Int32, MaxTeamsVal);
   Constant *ReductionDataSize =
       ConstantInt::getSigned(Int32, Attrs.ReductionDataSize);
   Constant *ReductionBufferLength =
@@ -7015,14 +7030,13 @@ OpenMPIRBuilder::readTeamBoundsForKernel(const Triple &, Function &Kernel) {
 }
 
 void OpenMPIRBuilder::writeTeamsForKernel(const Triple &T, Function &Kernel,
-                                          int32_t LB, int32_t UB) {
+                                          int32_t LB, int32_t UBTotal, int32_t UB[3]) {
   if (T.isNVPTX())
-    if (UB > 0)
-      Kernel.addFnAttr("nvvm.maxclusterrank", llvm::utostr(UB));
+    Kernel.addFnAttr("nvvm.maxclusterrank", llvm::utostr(UBTotal));
   if (T.isAMDGPU())
-    Kernel.addFnAttr("amdgpu-max-num-workgroups", llvm::utostr(LB) + ",1,1");
+    Kernel.addFnAttr("amdgpu-max-num-workgroups", llvm::utostr(UB[0]) + "," + llvm::utostr(UB[1]) + "," + llvm::utostr(UB[2]));
 
-  Kernel.addFnAttr("omp_target_num_teams", std::to_string(LB));
+  Kernel.addFnAttr("omp_target_num_teams", std::to_string(UBTotal));
 }
 
 void OpenMPIRBuilder::setOutlinedTargetRegionFunctionAttributes(

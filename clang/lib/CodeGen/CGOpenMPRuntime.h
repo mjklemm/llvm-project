@@ -628,7 +628,7 @@ public:
   void
   getNumTeamsExprForTargetDirective(CodeGenFunction &CGF,
                                     const OMPExecutableDirective &D,
-                                    int32_t &MinTeamsVal, int32_t &MaxTeamsVal,
+                                    int32_t &MinTeamsVal, llvm::SmallVectorImpl<int32_t> &MaxTeamsVals,
                                     llvm::SmallVectorImpl<const Expr *> &Exprs);
   void
   emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
