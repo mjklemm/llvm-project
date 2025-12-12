@@ -139,7 +139,7 @@ void SharedMemorySmartStackTy::pop(void *Ptr, uint64_t Bytes) {
 }
 
 struct DynCGroupMemTy {
-  void init(KernelLaunchEnvironmentTy *KLE, void *NativeDynCGroup) {
+  void init(KernelLaunchEnvironmentTy *KLE) {
     Size = 0;
     Ptr = nullptr;
     Fallback = DynCGroupMemFallbackType::None;
@@ -148,15 +148,14 @@ struct DynCGroupMemTy {
 
     Size = KLE->DynCGroupMemSize;
     Fallback = KLE->DynCGroupMemFb;
-    if (Fallback == DynCGroupMemFallbackType::None)
-      Ptr = static_cast<char *>(NativeDynCGroup);
-    else if (Fallback == DynCGroupMemFallbackType::DefaultMem)
+    if (Fallback == DynCGroupMemFallbackType::DefaultMem)
       Ptr = static_cast<char *>(KLE->DynCGroupMemFbPtr) +
             Size * omp_get_team_num();
   }
 
-  char *getPtr(size_t Offset) const { return Ptr + Offset; }
+  char *getFallbackPtr(size_t Offset) const { return Ptr + Offset; }
   bool isFallback() const { return Fallback != DynCGroupMemFallbackType::None; }
+  bool isDefaultMemFallback() const { return Fallback == DynCGroupMemFallbackType::DefaultMem; }
   size_t getSize() const { return Size; }
 
 private:
@@ -271,7 +270,7 @@ void state::init(bool IsSPMD, KernelEnvironmentTy &KernelEnvironment,
     KLE = nullptr;
 
   if (mapping::isInitialThreadInLevel0(IsSPMD)) {
-    DynCGroupMem.init(KLE, DynamicSharedBuffer);
+    DynCGroupMem.init(KLE);
     TeamState.init(IsSPMD);
     ThreadStates = nullptr;
     KernelEnvironmentPtr = &KernelEnvironment;
@@ -495,11 +494,12 @@ int omp_get_initial_device(void) { return -1; }
 
 int omp_is_initial_device(void) { return 0; }
 
-void *omp_get_dyn_groupprivate_ptr(size_t Offset, int *IsFallback,
-                                   omp_access_t) {
-  if (IsFallback != nullptr)
-    *IsFallback = DynCGroupMem.isFallback();
-  return DynCGroupMem.getPtr(Offset);
+void *omp_get_dyn_groupprivate_ptr(size_t Offset, omp_access_t) {
+  return (DynCGroupMem.getSize() && DynCGroupMem.isDefaultMemFallback()) ? DynamicSharedBuffer + Offset : nullptr;
+}
+
+void *omp_get_dyn_groupprivate_fallback_ptr(size_t Offset, omp_access_t) {
+  return (DynCGroupMem.isDefaultMemFallback()) ? DynCGroupMem.getFallbackPtr(Offset) : nullptr;
 }
 
 size_t omp_get_dyn_groupprivate_size(omp_access_t) {
