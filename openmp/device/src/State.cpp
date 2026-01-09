@@ -140,16 +140,19 @@ void SharedMemorySmartStackTy::pop(void *Ptr, uint64_t Bytes) {
 
 struct DynCGroupMemTy {
   void init(KernelLaunchEnvironmentTy *KLE) {
-    Size = 0;
+    UseNativePtr = false;
     FallbackPtr = nullptr;
+    Size = 0;
     Fallback = DynCGroupMemFallbackType::None;
     if (!KLE)
       return;
 
     Size = KLE->DynCGroupMemSize;
     Fallback = KLE->DynCGroupMemFb;
+    if (Size && Fallback == DynCGroupMemFallbackType::None)
+      UseNativePtr = true;
     if (Fallback == DynCGroupMemFallbackType::DefaultMem)
-      FallbackPtr = static_cast<char *>(KLE->DynCGroupMemFbPtr) +
+      FallbackPtr = static_cast<unsigned char *>(KLE->DynCGroupMemFbPtr) +
             Size * omp_get_team_num();
   }
 
@@ -158,17 +161,21 @@ struct DynCGroupMemTy {
   bool isDefaultMemFallback() const { return Fallback == DynCGroupMemFallbackType::DefaultMem; }
   size_t getSize() const { return Size; }
 
-  void *getNativePtr(size_t Offset) const {
-    return (getSize() && !isFallback()) ? DynamicSharedBuffer + Offset : nullptr;
+  unsigned char *getNativePtr() const {
+    return UseNativePtr ? DynamicSharedBuffer : nullptr;
+  }
+  unsigned char *getNativePtr(size_t Offset) const {
+    return getNativePtr() + Offset;
   }
   void *getNativeOrFallbackPtr(size_t Offset) const {
     return (isDefaultMemFallback()) ? getFallbackPtr(Offset) : getNativePtr(Offset);
   }
 
 private:
-  char *FallbackPtr;
+  unsigned char *FallbackPtr;
   size_t Size;
   DynCGroupMemFallbackType Fallback;
+  bool UseNativePtr;
 };
 
 [[clang::loader_uninitialized]] static Local<DynCGroupMemTy> DynCGroupMem;
