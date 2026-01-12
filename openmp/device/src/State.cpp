@@ -161,11 +161,11 @@ struct DynCGroupMemTy {
   bool isDefaultMemFallback() const { return Fallback == DynCGroupMemFallbackType::DefaultMem; }
   size_t getSize() const { return Size; }
 
-  unsigned char *getNativePtr() const {
-    return UseNativePtr ? DynamicSharedBuffer : nullptr;
-  }
   unsigned char *getNativePtr(size_t Offset) const {
-    return getNativePtr() + Offset;
+    // NOTE: This is a temporary workaround to avoid a Clang bug with nullptr
+    // that are casted to a non-generic address space in the AMDGPU backend.
+    unsigned char *Nullptr = nullptr;
+    return UseNativePtr ? (DynamicSharedBuffer + Offset) : Nullptr;
   }
   void *getNativeOrFallbackPtr(size_t Offset) const {
     return (isDefaultMemFallback()) ? getFallbackPtr(Offset) : getNativePtr(Offset);
