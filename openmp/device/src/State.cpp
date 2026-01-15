@@ -40,7 +40,9 @@ using namespace ompx;
 [[clang::loader_uninitialized]] static Local<KernelLaunchEnvironmentTy *>
     KernelLaunchEnvironmentPtr;
 
-using PtrTy = decltype(&DynamicSharedBuffer[0]);
+/// The pointer type for dynamic shared memory. This is important to keep
+/// the alignment and address space information.
+using ShmemPtrTy = decltype(&DynamicSharedBuffer[0]);
 
 ///}
 
@@ -142,7 +144,7 @@ void SharedMemorySmartStackTy::pop(void *Ptr, uint64_t Bytes) {
 
 struct DynCGroupMemTy {
   void init(KernelLaunchEnvironmentTy *KLE) {
-    NativePtrOrNullptr = nullptr;
+    NativeOrNullPtr = nullptr;
     FallbackPtr = nullptr;
     Size = 0;
     Fallback = DynCGroupMemFallbackType::None;
@@ -152,25 +154,24 @@ struct DynCGroupMemTy {
     Size = KLE->DynCGroupMemSize;
     Fallback = KLE->DynCGroupMemFb;
     if (Size && Fallback == DynCGroupMemFallbackType::None)
-      NativePtrOrNullptr = DynamicSharedBuffer;
+      NativeOrNullPtr = DynamicSharedBuffer;
     if (Fallback == DynCGroupMemFallbackType::DefaultMem)
       FallbackPtr = static_cast<unsigned char *>(KLE->DynCGroupMemFbPtr) +
             Size * omp_get_team_num();
   }
 
-  void *getFallbackPtr(size_t Offset) const { return FallbackPtr + Offset; }
-  void *getNativePtr(size_t Offset) const { return ((unsigned char *) NativePtrOrNullptr) + Offset; }
   bool isFallback() const { return Fallback != DynCGroupMemFallbackType::None; }
   bool isDefaultMemFallback() const { return Fallback == DynCGroupMemFallbackType::DefaultMem; }
   size_t getSize() const { return Size; }
 
-  PtrTy getNativePtrOpt() const { return (PtrTy) NativePtrOrNullptr; }
-  void *getNativeOrFallbackPtr(size_t Offset) const {
-    return (isDefaultMemFallback()) ? getFallbackPtr(Offset) : getNativePtr(Offset);
+  ShmemPtrTy getNativeOrNullPtr() const { return (ShmemPtrTy) NativeOrNullPtr; }
+
+  unsigned char *getNativeOrFallbackPtr() const {
+    return (isDefaultMemFallback()) ? FallbackPtr : getNativeOrNullPtr();
   }
 
 private:
-  PtrTy NativePtrOrNullptr;
+  ShmemPtrTy NativeOrNullPtr;
   unsigned char *FallbackPtr;
   size_t Size;
   DynCGroupMemFallbackType Fallback;
@@ -180,7 +181,7 @@ private:
 
 } // namespace
 
-void *memory::getDynamicBuffer() { return (PtrTy) DynamicSharedBuffer; }
+void *memory::getDynamicBuffer() { return (ShmemPtrTy) DynamicSharedBuffer; }
 
 void *memory::allocShared(uint64_t Bytes, const char *Reason) {
   return SharedMemorySmartStack.push(Bytes);
@@ -507,13 +508,13 @@ int omp_get_initial_device(void) { return -1; }
 int omp_is_initial_device(void) { return 0; }
 
 void *omp_get_dyn_groupprivate_ptr(size_t Offset, omp_access_t) {
-  unsigned char *Ptr = DynCGroupMem.getNativePtrOpt();
+  unsigned char *Ptr = DynCGroupMem.getNativeOrNullPtr();
   Ptr = (unsigned char *) __builtin_assume_aligned(Ptr, 16);
-  return (PtrTy) (Ptr + Offset);
+  return (ShmemPtrTy) (Ptr + Offset);
 }
 
 void *omp_get_dyn_groupprivate_fallback_ptr(size_t Offset, omp_access_t) {
-  return DynCGroupMem.getNativeOrFallbackPtr(Offset);
+  return DynCGroupMem.getNativeOrFallbackPtr() + Offset;
 }
 
 size_t omp_get_dyn_groupprivate_size(omp_access_t) {
