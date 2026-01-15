@@ -40,6 +40,8 @@ using namespace ompx;
 [[clang::loader_uninitialized]] static Local<KernelLaunchEnvironmentTy *>
     KernelLaunchEnvironmentPtr;
 
+using PtrTy = decltype(&DynamicSharedBuffer[0]);
+
 ///}
 
 namespace {
@@ -140,7 +142,7 @@ void SharedMemorySmartStackTy::pop(void *Ptr, uint64_t Bytes) {
 
 struct DynCGroupMemTy {
   void init(KernelLaunchEnvironmentTy *KLE) {
-    UseNativePtr = false;
+    NativePtrOrNullptr = nullptr;
     FallbackPtr = nullptr;
     Size = 0;
     Fallback = DynCGroupMemFallbackType::None;
@@ -150,39 +152,35 @@ struct DynCGroupMemTy {
     Size = KLE->DynCGroupMemSize;
     Fallback = KLE->DynCGroupMemFb;
     if (Size && Fallback == DynCGroupMemFallbackType::None)
-      UseNativePtr = true;
+      NativePtrOrNullptr = DynamicSharedBuffer;
     if (Fallback == DynCGroupMemFallbackType::DefaultMem)
       FallbackPtr = static_cast<unsigned char *>(KLE->DynCGroupMemFbPtr) +
             Size * omp_get_team_num();
   }
 
   void *getFallbackPtr(size_t Offset) const { return FallbackPtr + Offset; }
+  void *getNativePtr(size_t Offset) const { return ((unsigned char *) NativePtrOrNullptr) + Offset; }
   bool isFallback() const { return Fallback != DynCGroupMemFallbackType::None; }
   bool isDefaultMemFallback() const { return Fallback == DynCGroupMemFallbackType::DefaultMem; }
   size_t getSize() const { return Size; }
 
-  unsigned char *getNativePtr(size_t Offset) const {
-    // NOTE: This is a temporary workaround to avoid a Clang bug with nullptr
-    // that are casted to a non-generic address space in the AMDGPU backend.
-    unsigned char *Nullptr = nullptr;
-    return UseNativePtr ? (DynamicSharedBuffer + Offset) : Nullptr;
-  }
+  PtrTy getNativePtrOpt() const { return (PtrTy) NativePtrOrNullptr; }
   void *getNativeOrFallbackPtr(size_t Offset) const {
     return (isDefaultMemFallback()) ? getFallbackPtr(Offset) : getNativePtr(Offset);
   }
 
 private:
+  PtrTy NativePtrOrNullptr;
   unsigned char *FallbackPtr;
   size_t Size;
   DynCGroupMemFallbackType Fallback;
-  bool UseNativePtr;
 };
 
 [[clang::loader_uninitialized]] static Local<DynCGroupMemTy> DynCGroupMem;
 
 } // namespace
 
-void *memory::getDynamicBuffer() { return DynamicSharedBuffer; }
+void *memory::getDynamicBuffer() { return (PtrTy) DynamicSharedBuffer; }
 
 void *memory::allocShared(uint64_t Bytes, const char *Reason) {
   return SharedMemorySmartStack.push(Bytes);
@@ -509,7 +507,9 @@ int omp_get_initial_device(void) { return -1; }
 int omp_is_initial_device(void) { return 0; }
 
 void *omp_get_dyn_groupprivate_ptr(size_t Offset, omp_access_t) {
-  return DynCGroupMem.getNativePtr(Offset);
+  unsigned char *Ptr = DynCGroupMem.getNativePtrOpt();
+  Ptr = (unsigned char *) __builtin_assume_aligned(Ptr, 16);
+  return (PtrTy) (Ptr + Offset);
 }
 
 void *omp_get_dyn_groupprivate_fallback_ptr(size_t Offset, omp_access_t) {
