@@ -241,15 +241,33 @@
             integer (kind=omp_integer_kind) omp_get_num_threads
           end function omp_get_num_threads
 
+          function omp_get_num_threads_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_num_threads_dim
+          end function omp_get_num_threads_dim
+
           function omp_get_max_threads() bind(c)
             use omp_lib_kinds
             integer (kind=omp_integer_kind) omp_get_max_threads
           end function omp_get_max_threads
 
+          function omp_get_max_threads_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_max_threads_dim
+          end function omp_get_max_threads_dim
+
           function omp_get_thread_num() bind(c)
             use omp_lib_kinds
             integer (kind=omp_integer_kind) omp_get_thread_num
           end function omp_get_thread_num
+
+          function omp_get_thread_num_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_thread_num_dim
+          end function omp_get_thread_num_dim
 
           function omp_get_num_procs() bind(c)
             use omp_lib_kinds
@@ -280,6 +298,12 @@
             use omp_lib_kinds
             integer (kind=omp_integer_kind) omp_get_thread_limit
           end function omp_get_thread_limit
+
+          function omp_get_thread_limit_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_thread_limit_dim
+          end function omp_get_thread_limit_dim
 
           subroutine omp_set_max_active_levels(max_levels) bind(c)
             use omp_lib_kinds
@@ -392,10 +416,22 @@
             integer (kind=omp_integer_kind) omp_get_num_teams
           end function omp_get_num_teams
 
+          function omp_get_num_teams_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_num_teams_dim
+          end function omp_get_num_teams_dim
+
           function omp_get_team_num() bind(c)
             use omp_lib_kinds
             integer (kind=omp_integer_kind) omp_get_team_num
           end function omp_get_team_num
+
+          function omp_get_team_num_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_team_num_dim
+          end function omp_get_team_num_dim
 
           function omp_get_cancellation() bind(c)
             use omp_lib_kinds
@@ -620,6 +656,12 @@
             use omp_lib_kinds
             integer (kind=omp_integer_kind) omp_get_max_teams
           end function omp_get_max_teams
+
+          function omp_get_max_teams_dim(dim) bind(c)
+            use omp_lib_kinds, only: omp_integer_kind
+            integer(kind=omp_integer_kind), value :: dim
+            integer(kind=omp_integer_kind) :: omp_get_team_max_teams_dim
+          end function omp_get_max_teams_dim
 
           subroutine omp_set_teams_thread_limit(thread_limit) bind(c)
             use omp_lib_kinds
@@ -1065,8 +1107,11 @@
         public :: omp_set_dynamic
         public :: omp_set_nested
         public :: omp_get_num_threads
+        public :: omp_get_num_threads_dim
         public :: omp_get_max_threads
+        public :: omp_get_max_threads_dim
         public :: omp_get_thread_num
+        public :: omp_get_thread_num_dim
         public :: omp_get_num_procs
         public :: omp_in_parallel
         public :: omp_in_final
@@ -1094,7 +1139,9 @@
         public :: omp_set_default_device
         public :: omp_get_num_devices
         public :: omp_get_num_teams
+        public :: omp_get_num_teams_dim
         public :: omp_get_team_num
+        public :: omp_get_team_num_dim
         public :: omp_get_cancellation
         public :: omp_is_initial_device
         public :: omp_get_initial_device
@@ -1127,8 +1174,10 @@
         public :: omp_capture_affinity
         public :: omp_set_num_teams
         public :: omp_get_max_teams
+        public :: omp_get_max_teams_dim
         public :: omp_set_teams_thread_limit
         public :: omp_get_teams_thread_limit
+        public :: omp_get_teams_thread_limit_dim
         public :: omp_display_env
         public :: omp_target_alloc
         public :: omp_target_free
