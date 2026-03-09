@@ -120,7 +120,14 @@ private:
   int getIndentOffset(const AnnotatedLine &Line) {
     if (Style.isJava() || Style.isJavaScript() || Style.isCSharp())
       return 0;
+
     const auto &RootToken = *Line.First;
+
+    if (Style.IndentGotoLabels == FormatStyle::IGLS_HalfIndent &&
+        RootToken.Next && RootToken.Next->is(TT_GotoLabelColon)) {
+      return -static_cast<int>(Style.IndentWidth / 2);
+    }
+
     if (Line.Type == LT_AccessModifier ||
         RootToken.isAccessSpecifier(/*ColonRequired=*/false) ||
         RootToken.isObjCAccessSpecifier() ||
@@ -642,8 +649,10 @@ private:
         return 0;
       const auto N = MergedLines + LinesToBeMerged;
       // Check if there is even a line after the inner result.
-      if (std::distance(I, E) <= N)
+      if (auto Distance = std::distance(I, E);
+          static_cast<decltype(N)>(Distance) <= N) {
         return 0;
+      }
       // Check that the line after the inner result starts with a closing brace
       // which we are permitted to merge into one line.
       if (I[N]->First->is(TT_NamespaceRBrace) &&
@@ -1052,8 +1061,8 @@ static void markFinalized(FormatToken *Tok) {
 static void printLineState(const LineState &State) {
   llvm::dbgs() << "State: ";
   for (const ParenState &P : State.Stack) {
-    llvm::dbgs() << (P.Tok ? P.Tok->TokenText : "F") << "|" << P.Indent << "|"
-                 << P.LastSpace << "|" << P.NestedBlockIndent << " ";
+    llvm::dbgs() << (P.Tok ? P.Tok->TokenText : "F") << "|" << P.Indent.Total
+                 << "|" << P.LastSpace << "|" << P.NestedBlockIndent << " ";
   }
   llvm::dbgs() << State.NextToken->TokenText << "\n";
 }
@@ -1111,7 +1120,7 @@ protected:
       const ParenState &P = State.Stack.back();
 
       int AdditionalIndent =
-          P.Indent - Previous.Children[0]->Level * Style.IndentWidth;
+          P.Indent.Total - Previous.Children[0]->Level * Style.IndentWidth;
       Penalty +=
           BlockFormatter->format(Previous.Children, DryRun, AdditionalIndent,
                                  /*FixBadIndentation=*/true);

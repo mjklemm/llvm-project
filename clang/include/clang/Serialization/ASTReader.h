@@ -254,7 +254,7 @@ public:
   /// \returns true to continue receiving the next input file, false to stop.
   virtual bool visitInputFileAsRequested(StringRef FilenameAsRequested,
                                          StringRef Filename, bool isSystem,
-                                         bool isOverridden,
+                                         bool isOverridden, time_t StoredTime,
                                          bool isExplicitModule) {
     return true;
   }
@@ -1005,7 +1005,7 @@ private:
   ///
   /// The AST context tracks a few important decls, currently cudaConfigureCall,
   /// directly.
-  SmallVector<GlobalDeclID, 2> CUDASpecialDeclRefs;
+  SmallVector<GlobalDeclID, 4> CUDASpecialDeclRefs;
 
   /// The floating point pragma option settings.
   SmallVector<uint64_t, 1> FPPragmaOptions;
@@ -1078,6 +1078,9 @@ private:
 
   /// The IDs of all decls with function effects to be checked.
   SmallVector<GlobalDeclID> DeclsWithEffectsToVerify;
+
+  /// The RISC-V intrinsic pragma(including RVV, SiFive and Andes).
+  SmallVector<bool, 3> RISCVVecIntrinsicPragma;
 
 private:
   struct ImportedSubmodule {
@@ -1538,7 +1541,6 @@ public:
   /// If we have any unloaded specialization for \p D
   bool haveUnloadedSpecializations(const Decl *D) const;
 
-private:
   struct ImportedModule {
     ModuleFile *Mod;
     ModuleFile *ImportedBy;
@@ -1556,6 +1558,8 @@ private:
                             off_t ExpectedSize, time_t ExpectedModTime,
                             ASTFileSignature ExpectedSignature,
                             unsigned ClientLoadCapabilities);
+
+private:
   ASTReadResult ReadControlBlock(ModuleFile &F,
                                  SmallVectorImpl<ImportedModule> &Loaded,
                                  const ModuleFile *ImportedBy,
@@ -1586,6 +1590,21 @@ private:
   void ParseLineTable(ModuleFile &F, const RecordData &Record);
   llvm::Error ReadSourceManagerBlock(ModuleFile &F);
   SourceLocation getImportLocation(ModuleFile *F);
+
+  /// The first element is `std::nullopt` if relocation check should be skipped.
+  /// Otherwise, the optional holds a pointer to the discovered module.
+  /// The pointer can be `nullptr` if the discovery was unsuccessful.
+  /// The second element determines whether to emit related errors.
+  using RelocationResult = std::pair<std::optional<Module *>, bool>;
+
+  /// Determine whether a relocation check for a module should be performed
+  /// by attempting to resolve the same module via lookup.
+  /// If so, also determine whether to emit errors for the relocation.
+  /// A relocated module is defined as a module that is either no longer
+  /// resolvable from the modulemap or search path it originally compiled it's
+  /// definition from.
+  RelocationResult getModuleForRelocationChecks(ModuleFile &F,
+                                                bool DirectoryCheck = false);
   ASTReadResult ReadModuleMapFileBlock(RecordData &Record, ModuleFile &F,
                                        const ModuleFile *ImportedBy,
                                        unsigned ClientLoadCapabilities);
@@ -2021,7 +2040,8 @@ public:
       StringRef Filename, FileManager &FileMgr, const ModuleCache &ModCache,
       const PCHContainerReader &PCHContainerRdr, const LangOptions &LangOpts,
       const CodeGenOptions &CGOpts, const TargetOptions &TargetOpts,
-      const PreprocessorOptions &PPOpts, StringRef ExistingModuleCachePath,
+      const PreprocessorOptions &PPOpts, const HeaderSearchOptions &HSOpts,
+      StringRef SpecificModuleCachePath,
       bool RequireStrictOptionMatches = false);
 
   /// Returns the suggested contents of the predefines buffer,
