@@ -5084,6 +5084,7 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
       else
         Diag(Tok, diag::warn_pragma_expected_colon)
             << getOpenMPClauseName(Kind) << " clause";
+    }
   } else if (Kind == OMPC_use_device_ptr) {
     // Handle optional fallback modifier for use_device_ptr clause.
     // use_device_ptr([fb_preserve | fb_nullify :] list)
