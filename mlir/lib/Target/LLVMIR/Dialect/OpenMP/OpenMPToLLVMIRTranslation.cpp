@@ -403,8 +403,8 @@ static LogicalResult checkImplementationStatus(Operation &op) {
   };
 
   auto checkThreadLimit = [&todo](auto op, LogicalResult &result) {
-    if (op.hasThreadLimitMultiDim())
-      result = todo("thread_limit with multi-dimensional values");
+    if (op.getThreadLimitDimsCount() > 3)
+      result = todo("thread_limit with more than 3 dimensions");
   };
 
   auto checkDynGroupprivate = [&todo](auto op, LogicalResult &result) {
@@ -6221,7 +6221,8 @@ createDeviceArgumentAccessor(MapInfoData &mapData, llvm::Argument &arg,
 static void extractHostEvalClauses(
     omp::TargetOp targetOp, llvm::SmallVectorImpl<Value> &numThreadsVars,
     Value &numTeamsLower, llvm::SmallVectorImpl<Value> &numTeamsUpperVars,
-    Value &threadLimit, llvm::SmallVectorImpl<Value> *lowerBounds = nullptr,
+    llvm::SmallVectorImpl<Value> &threadLimitVars,
+    llvm::SmallVectorImpl<Value> *lowerBounds = nullptr,
     llvm::SmallVectorImpl<Value> *upperBounds = nullptr,
     llvm::SmallVectorImpl<Value> *steps = nullptr) {
   auto blockArgIface = llvm::cast<omp::BlockArgOpenMPOpInterface>(*targetOp);
@@ -6246,10 +6247,18 @@ static void extractHostEvalClauses(
                   break;
                 }
               }
-            } else if (!teamsOp.getThreadLimitVars().empty() &&
-                       teamsOp.getThreadLimit(0) == blockArg)
-              threadLimit = hostEvalVar;
-            else
+            } else if (llvm::is_contained(teamsOp.getThreadLimitVars(),
+                                          blockArg)) {
+              for (auto [i, limitVar] :
+                   llvm::enumerate(teamsOp.getThreadLimitVars())) {
+                if (limitVar == blockArg) {
+                  if (threadLimitVars.size() <= i)
+                    threadLimitVars.resize(i + 1);
+                  threadLimitVars[i] = hostEvalVar;
+                  break;
+                }
+              }
+            } else
               llvm_unreachable("unsupported host_eval use");
           })
           .Case([&](omp::ParallelOp parallelOp) {
@@ -6364,11 +6373,11 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
                        bool isTargetDevice, bool isGPU) {
   // TODO: Handle constant 'if' clauses.
 
-  Value numTeamsLower, threadLimit;
-  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars;
+  Value numTeamsLower;
+  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars, threadLimitVars;
   if (!isTargetDevice) {
     extractHostEvalClauses(targetOp, numThreadsVars, numTeamsLower,
-                           numTeamsUpperVars, threadLimit);
+                           numTeamsUpperVars, threadLimitVars);
   } else {
     // In the target device, values for these clauses are not passed as
     // host_eval, but instead evaluated prior to entry to the region. This
@@ -6380,8 +6389,9 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
       for (auto upperVar : teamsOp.getNumTeamsUpperVars())
         numTeamsUpperVars.push_back(upperVar);
       // Handle thread_limit (only first value for now)
-      if (!teamsOp.getThreadLimitVars().empty())
-        threadLimit = teamsOp.getThreadLimit(0);
+      threadLimitVars.reserve(teamsOp.getThreadLimitVars().size());
+      for (auto limitVar : teamsOp.getThreadLimitVars())
+        threadLimitVars.push_back(limitVar);
     }
 
     if (auto parallelOp = castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
@@ -6436,32 +6446,44 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
   };
 
   // Extract 'thread_limit' clause from 'target' and 'teams' directives.
-  int32_t targetThreadLimitVal = -1, teamsThreadLimitVal = -1;
-  if (!targetOp.getThreadLimitVars().empty())
-    setMaxValueFromClause(targetOp.getThreadLimit(0), targetThreadLimitVal);
-  setMaxValueFromClause(threadLimit, teamsThreadLimitVal);
+  llvm::SmallVector<int32_t, 3> targetThreadLimitVals(3, -1);
+  llvm::SmallVector<int32_t, 3> teamsThreadLimitVals(3, -1);
+  for (auto [i, limitVar] : llvm::enumerate(targetOp.getThreadLimitVars())) {
+    if (i < 3)
+      setMaxValueFromClause(limitVar, targetThreadLimitVals[i]);
+  }
+  for (auto [i, limitVar] : llvm::enumerate(threadLimitVars)) {
+    if (i < 3)
+      setMaxValueFromClause(limitVar, teamsThreadLimitVals[i]);
+  }
 
-  // Extract 'max_threads' clause from 'parallel' or set to 1 if it's SIMD.
-  int32_t maxThreadsVal = -1;
+  // Extract multi-dimensional 'num_threads' clause from 'parallel' or set to 1
+  // if it's SIMD.
+  llvm::SmallVector<int32_t, 3> maxThreadsVals(3, -1);
   if (castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
-    // For multi-dimensional num_threads, only use the first dimension for now
-    if (!numThreadsVars.empty())
-      setMaxValueFromClause(numThreadsVars[0], maxThreadsVal);
+    for (auto [i, threadsVar] : llvm::enumerate(numThreadsVars)) {
+      if (i < 3)
+        setMaxValueFromClause(threadsVar, maxThreadsVals[i]);
+    }
   } else if (castOrGetParentOfType<omp::SimdOp>(capturedOp,
-                                                /*immediateParent=*/true))
-    maxThreadsVal = 1;
+                                                /*immediateParent=*/true)) {
+    maxThreadsVals[0] = 1;
+  }
 
   // For max values, < 0 means unset, == 0 means set but unknown. Select the
-  // minimum value between 'max_threads' and 'thread_limit' clauses that were
-  // set.
-  int32_t combinedMaxThreadsVal = targetThreadLimitVal;
-  if (combinedMaxThreadsVal < 0 ||
-      (teamsThreadLimitVal >= 0 && teamsThreadLimitVal < combinedMaxThreadsVal))
-    combinedMaxThreadsVal = teamsThreadLimitVal;
-
-  if (combinedMaxThreadsVal < 0 ||
-      (maxThreadsVal >= 0 && maxThreadsVal < combinedMaxThreadsVal))
-    combinedMaxThreadsVal = maxThreadsVal;
+  // minimum value between 'num_threads' and 'thread_limit' clauses that were
+  // set, for each dimension.
+  llvm::SmallVector<int32_t, 3> combinedMaxThreadsVals(3, -1);
+  for (size_t i = 0; i < 3; ++i) {
+    int32_t combined = targetThreadLimitVals[i];
+    if (combined < 0 ||
+        (teamsThreadLimitVals[i] >= 0 && teamsThreadLimitVals[i] < combined))
+      combined = teamsThreadLimitVals[i];
+    if (combined < 0 ||
+        (maxThreadsVals[i] >= 0 && maxThreadsVals[i] < combined))
+      combined = maxThreadsVals[i];
+    combinedMaxThreadsVals[i] = combined;
+  }
 
   int32_t reductionDataSize = 0;
   if (isGPU && capturedOp) {
@@ -6493,7 +6515,7 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
   for (size_t i = 0; i < maxTeamsVals.size() && i < attrs.MaxTeams.size(); ++i)
     attrs.MaxTeams[i] = maxTeamsVals[i];
   attrs.MinThreads = 1;
-  attrs.MaxThreads.front() = combinedMaxThreadsVal;
+  attrs.MaxThreads = combinedMaxThreadsVals;
   attrs.ReductionDataSize = reductionDataSize;
   // TODO: Allow modified buffer length similar to
   // fopenmp-cuda-teams-reduction-recs-num flag in clang.
@@ -6515,19 +6537,23 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
   omp::LoopNestOp loopOp = castOrGetParentOfType<omp::LoopNestOp>(capturedOp);
   unsigned numLoops = loopOp ? loopOp.getNumLoops() : 0;
 
-  Value numTeamsLower, teamsThreadLimit;
-  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars;
+  Value numTeamsLower;
+  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars, threadLimitVars;
   llvm::SmallVector<Value> lowerBounds(numLoops), upperBounds(numLoops),
       steps(numLoops);
   extractHostEvalClauses(targetOp, numThreadsVars, numTeamsLower,
-                         numTeamsUpperVars, teamsThreadLimit, &lowerBounds,
+                         numTeamsUpperVars, threadLimitVars, &lowerBounds,
                          &upperBounds, &steps);
 
   // TODO: Handle constant 'if' clauses.
+  // Resize to 3 dimensions to match TargetKernelDefaultAttrs
+  attrs.TargetThreadLimit.resize(3);
   if (!targetOp.getThreadLimitVars().empty()) {
-    Value targetThreadLimit = targetOp.getThreadLimit(0);
-    attrs.TargetThreadLimit.front() =
-        moduleTranslation.lookupValue(targetThreadLimit);
+    for (auto [i, limitVar] : llvm::enumerate(targetOp.getThreadLimitVars())) {
+      if (limitVar) {
+        attrs.TargetThreadLimit[i] = moduleTranslation.lookupValue(limitVar);
+      }
+    }
   }
 
   // The __kmpc_push_num_teams_51 function expects int32 as the arguments.  So,
@@ -6548,9 +6574,15 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
     }
   }
 
-  if (teamsThreadLimit)
-    attrs.TeamsThreadLimit.front() = builder.CreateSExtOrTrunc(
-        moduleTranslation.lookupValue(teamsThreadLimit), builder.getInt32Ty());
+  attrs.TeamsThreadLimit.resize(3);
+  if (!threadLimitVars.empty()) {
+    for (auto [i, limitVar] : llvm::enumerate(threadLimitVars)) {
+      if (limitVar) {
+        attrs.TeamsThreadLimit[i] = builder.CreateSExtOrTrunc(
+            moduleTranslation.lookupValue(limitVar), builder.getInt32Ty());
+      }
+    }
+  }
 
   // Handle multi-dimensional num_threads (only first value for now)
   if (!numThreadsVars.empty())
