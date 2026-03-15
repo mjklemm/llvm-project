@@ -29,7 +29,7 @@ program threadprivate02
   equivalence(eq_c, eq_d)
 
   ! This is an extension to the OpenMP semantics, see https://github.com/llvm/llvm-project/issues/180493
-  !WARNING: A variable in a THREADPRIVATE directive used in an EQUIVALENCE statement is an OpenMP extension (variable 'eq_e' from common block '/blk2/') [-Wopen-mp-threadprivate-equivalence]
+  !WARNING: A variable in a THREADPRIVATE directive used in an EQUIVALENCE statement is an OpenMP extension (variable 'eq_e' from common block '/blk2/') [-Wopenmp-threadprivate-equivalence]
   !$omp threadprivate(/blk2/)
 
 contains
