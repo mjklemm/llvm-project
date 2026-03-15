@@ -3247,10 +3247,10 @@ void OmpAttributeVisitor::ResolveOmpDesignator(
 void OmpAttributeVisitor::PropagateOmpFlagToEquivalenceSet(
     const Symbol &symbol, Symbol::Flag ompFlag) {
   // Find the equivalence set containing this symbol
-  if (const EquivalenceSet *eqSet = FindEquivalenceSet(symbol)) {
+  if (const EquivalenceSet *eqSet{FindEquivalenceSet(symbol)}) {
     // Propagate the flag to all symbols in the equivalence set
     for (const EquivalenceObject &eqObj : *eqSet) {
-      Symbol &eqSymbol = eqObj.symbol;
+      Symbol &eqSymbol{eqObj.symbol};
 
       // Skip the symbol itself (already has the flag)
       if (&eqSymbol == &symbol) {
