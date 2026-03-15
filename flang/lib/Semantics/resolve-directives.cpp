@@ -3288,7 +3288,7 @@ void OmpAttributeVisitor::ResolveOmpCommonBlock(
         details.replace_object(*resolvedObject, index);
 
         // Propagate the flag to symbols in the equivalence set
-        if (ompFlagsRequireMark.test(ompFlag)) {
+        if (ompFlag == Symbol::Flag::OmpThreadprivate) {
           PropagateOmpFlagToEquivalenceSet(*resolvedObject, ompFlag);
         }
       }
