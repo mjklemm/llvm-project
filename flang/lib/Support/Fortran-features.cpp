@@ -153,6 +153,7 @@ LanguageFeatureControl::LanguageFeatureControl() {
   warnLanguage_.set(LanguageFeature::NullActualForAllocatable);
   warnUsage_.set(UsageWarning::BadValueInDeadCode);
   warnUsage_.set(UsageWarning::MisplacedIgnoreTKR);
+  warnLanguage_.set(LanguageFeature::OpenMPThreadprivateEquivalence);
 }
 
 std::optional<LanguageControlFlag> LanguageFeatureControl::FindWarning(

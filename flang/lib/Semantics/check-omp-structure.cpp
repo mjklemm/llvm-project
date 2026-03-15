@@ -1365,7 +1365,8 @@ void OmpStructureChecker::CheckThreadprivateOrDeclareTargetVar(
     for (const auto &obj : cb->objects()) {
       if (FindEquivalenceSet(*obj)) {
         if (directive == llvm::omp::Directive::OMPD_threadprivate) {
-          context_.Say(name.source,
+          context_.Warn(common::LanguageFeature::OpenMPThreadprivateEquivalence,
+              name.source,
               "A variable in a %s directive used in an EQUIVALENCE statement is an OpenMP extension (variable '%s' from common block '/%s/')"_warn_en_US,
               ContextDirectiveAsFortran(), obj->name(), name.symbol->name());
         } else {

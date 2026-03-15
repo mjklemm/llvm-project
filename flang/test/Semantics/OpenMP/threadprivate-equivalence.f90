@@ -10,7 +10,7 @@ program threadprivate02
   equivalence(eq_a, a1)
 
   ! This is an extension to the OpenMP semantics, see https://github.com/llvm/llvm-project/issues/180493
-  !WARNING: A variable in a THREADPRIVATE directive used in an EQUIVALENCE statement is an OpenMP extension (variable 'a1' from common block '/blk1/')
+  !WARNING: A variable in a THREADPRIVATE directive used in an EQUIVALENCE statement is an OpenMP extension (variable 'a1' from common block '/blk1/') [-Wopen-mp-threadprivate-equivalence]
   !$omp threadprivate(/blk1/)
 
   !ERROR: A THREADPRIVATE variable cannot be in SHARED clause
