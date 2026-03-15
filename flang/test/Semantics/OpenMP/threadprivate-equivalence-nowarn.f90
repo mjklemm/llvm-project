@@ -1,4 +1,4 @@
-! RUN: %python %S/../test_errors.py %s %flang_fc1 -fopenmp
+! RUN: %python %S/../test_errors.py %s %flang_fc1 -fopenmp -Wno-open-mp-threadprivate-equivalence
 
 ! This a test for is an extension to the OpenMP semantics, see https://github.com/llvm/llvm-project/issues/180493
 
@@ -8,7 +8,6 @@ program threadprivate02
   real :: eq_a
   equivalence(eq_a, a1)
 
-  !WARNING: A variable in a THREADPRIVATE directive used in an EQUIVALENCE statement is an OpenMP extension (variable 'a1' from common block '/blk1/') [-Wopen-mp-threadprivate-equivalence]
   !$omp threadprivate(/blk1/)
 
   !ERROR: A THREADPRIVATE variable cannot be in SHARED clause
