@@ -1364,8 +1364,11 @@ void OmpStructureChecker::CheckThreadprivateOrDeclareTargetVar(
     for (const auto &obj : cb->objects()) {
       if (FindEquivalenceSet(*obj)) {
         context_.Say(name.source,
-            "A variable in a %s directive cannot appear in an EQUIVALENCE statement (variable '%s' from common block '/%s/')"_err_en_US,
+            "A variable in a %s directive used in an EQUIVALENCE statement is "
+            "an OpenMP extension (variable '%s' from common block "
+            "'/%s/')"_warn_en_US,
             ContextDirectiveAsFortran(), obj->name(), name.symbol->name());
+        fprintf(stderr, "--> %s\n", name.ToString().c_str());
       }
     }
   }
