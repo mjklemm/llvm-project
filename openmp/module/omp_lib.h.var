@@ -513,6 +513,24 @@
           integer(kind=omp_integer_kind) :: omp_get_team_num_dim
         end function omp_get_team_num_dim
 
+        function omp_get_supported_active_league_dims(device_num,
+     &    native_support) bind(c)
+          import
+          integer(kind=omp_integer_kind) :: device_num
+          logical :: native_support
+          integer(kind=omp_integer_kind) ::
+     &      omp_get_supported_active_league_dims
+        end function omp_get_supported_active_league_dims
+
+        function omp_get_supported_active_team_dims(device_num,
+     &    native_support) bind(c)
+          import
+          integer(kind=omp_integer_kind) :: device_num
+          logical :: native_support
+          integer(kind=omp_integer_kind) ::
+     &      omp_get_supported_active_team_dims
+        end function omp_get_supported_active_team_dims
+
         function omp_is_initial_device() bind(c)
           import
           logical (kind=omp_logical_kind) omp_is_initial_device
@@ -1219,6 +1237,8 @@
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_num_teams_dim
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_team_num
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_team_num_dim
+!DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_supported_active_league_dims
+!DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_supported_active_team_dims
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_init_lock
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_destroy_lock
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_set_lock
@@ -1308,6 +1328,8 @@
 !$omp declare target(omp_get_num_teams_dim )
 !$omp declare target(omp_get_team_num )
 !$omp declare target(omp_get_team_num_dim )
+!$omp declare target(omp_get_supported_active_league_dims )
+!$omp declare target(omp_get_supported_active_team_dims )
 !$omp declare target(omp_init_lock )
 !$omp declare target(omp_destroy_lock )
 !$omp declare target(omp_set_lock )
