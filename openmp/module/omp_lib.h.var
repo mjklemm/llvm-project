@@ -381,6 +381,12 @@
           integer(kind=omp_integer_kind) :: omp_get_thread_limit_dim
         end function omp_get_thread_limit_dim
 
+        function omp_get_thread_limit_dim(dim) bind(c)
+          import
+          integer(kind=omp_integer_kind), value :: dim
+          integer(kind=omp_integer_kind) :: omp_get_thread_limit_dim
+        end function omp_get_thread_limit_dim
+
         subroutine omp_set_max_active_levels(max_levels) bind(c)
           import
           integer (kind=omp_integer_kind), value :: max_levels
@@ -729,7 +735,7 @@
         function omp_get_max_teams_dim(dim) bind(c)
           import
           integer(kind=omp_integer_kind), value :: dim
-          integer(kind=omp_integer_kind) :: omp_get_team_max_teams_dim
+          integer(kind=omp_integer_kind) :: omp_get_max_teams_dim
         end function omp_get_max_teams_dim
 
         subroutine omp_set_teams_thread_limit(thread_limit) bind(c)
@@ -1187,6 +1193,7 @@
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_dynamic
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_nested
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_thread_limit
+!DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_thread_limit_dim
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_set_max_active_levels
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_max_active_levels
 !DIR$ ATTRIBUTES OFFLOAD:MIC :: omp_get_level
@@ -1266,6 +1273,7 @@
 !$omp declare target(omp_get_num_threads )
 !$omp declare target(omp_get_num_threads_dim )
 !$omp declare target(omp_get_max_threads )
+!$omp declare target(omp_get_max_threads_dim )
 !$omp declare target(omp_get_thread_num )
 !$omp declare target(omp_get_thread_num_dim )
 !$omp declare target(omp_get_num_procs )
@@ -1274,6 +1282,7 @@
 !$omp declare target(omp_get_dynamic )
 !$omp declare target(omp_get_nested )
 !$omp declare target(omp_get_thread_limit )
+!$omp declare target(omp_get_thread_limit_dim )
 !$omp declare target(omp_set_max_active_levels )
 !$omp declare target(omp_get_max_active_levels )
 !$omp declare target(omp_get_level )
