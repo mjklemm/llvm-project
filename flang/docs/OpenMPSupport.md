@@ -48,7 +48,7 @@ Note : No distinction is made between the support in Parser/Semantics, MLIR, Low
 | distribute parallel loop simd construct                    | P      | Implicit linearization is skipped if iv is a pointer or allocatable |
 | depend clause                                              | Y      | |
 | declare reduction construct                                | N      | |
-| atomic construct extensions                                | Y      | |
+| atomic construct extensions                                | Y      | Code generation for ATOMIC UPDATE COMPARE is not implemented yet. |
 | cancel construct                                           | Y      | |
 | cancellation point construct                               | Y      | |
 | parallel do simd construct                                 | P      | Implicit linearization is skipped if iv is a pointer or allocatable |
@@ -61,4 +61,3 @@ Note : No distinction is made between the support in Parser/Semantics, MLIR, Low
 | teams distribute parallel loop simd construct              | P      | Implicit linearization is skipped if iv is a pointer or allocatable |
 | target teams distribute parallel loop simd construct       | P      | Implicit linearization is completely skipped |
 
-[1] Code generation for ATOMIC UPDATE COMPARE is not implemented yet.
