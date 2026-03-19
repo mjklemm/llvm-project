@@ -1,6 +1,6 @@
 ! RUN: %python %S/../test_errors.py %s %flang_fc1 -fopenmp -Wno-openmp-threadprivate-equivalence
 
-! This a test for is an extension to the OpenMP semantics, see https://github.com/llvm/llvm-project/issues/180493
+! This is a test for an extension to the OpenMP semantics, see https://github.com/llvm/llvm-project/issues/180493
 
 program threadprivate02
   common /blk1/ a1
