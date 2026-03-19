@@ -6,7 +6,10 @@
 
 -->
 
+(openmp-extensions)=
 # OpenMP API Extensions Supported by Flang
+
+See also {doc}`OpenMPSupport` for a general overview of OpenMP support in Flang.
 
 ```{contents}
 ---
