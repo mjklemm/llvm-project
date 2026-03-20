@@ -28,7 +28,7 @@ The following extensions are supported by Flang.
 ### ATOMIC Construct
 The implementation of the ATOMIC construct follows OpenMP 6.0 with the following extensions:
 - `x = x` is an allowed form of ATOMIC UPDATE.
-   This is motivated by the fact that the equivalent forms `x = x+0` or `x = x*1` are allowed.
+  This is motivated by the fact that the equivalent forms `x = x+0` or `x = x*1` are allowed.
 - Explicit type conversions are allowed in ATOMIC READ, WRITE or UPDATE constructs, and in the capture statement in ATOMIC UPDATE CAPTURE.
   The OpenMP spec requires intrinsic- or pointer-assignments, which include (as per the Fortran standard) implicit type conversions.  Since such conversions need to be handled, allowing explicit conversions comes at no extra cost.
 - A literal `.true.` or `.false.` is an allowed condition in ATOMIC UPDATE COMPARE. [1]
