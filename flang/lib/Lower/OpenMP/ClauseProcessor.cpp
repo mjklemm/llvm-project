@@ -868,26 +868,26 @@ bool ClauseProcessor::processDynGroupprivate(
             std::get<std::optional<DynGroupprivate::AccessGroup>>(clause->t)) {
       switch (*accessGroup) {
       case DynGroupprivate::AccessGroup::Cgroup:
-        result.accessGroup = mlir::omp::AccessGroupModifierAttr::get(
-            context, mlir::omp::AccessGroupModifier::cgroup);
+        result.dynGroupprivateAccessGroup = mlir::omp::AccessGroupModifierAttr::get(
+          context, mlir::omp::AccessGroupModifier::cgroup);
         break;
       }
     }
 
     // Process Fallback modifier (abort, default_mem, null)
     if (auto fallback =
-            std::get<std::optional<DynGroupprivate::Fallback>>(clause->t)) {
-      switch (*fallback) {
+      std::get<std::optional<DynGroupprivate::Fallback>>(clause->t)) {
+    switch (*fallback) {
       case DynGroupprivate::Fallback::Abort:
-        result.fallback = mlir::omp::FallbackModifierAttr::get(
+        result.dynGroupprivateFallback = mlir::omp::FallbackModifierAttr::get(
             context, mlir::omp::FallbackModifier::abort);
         break;
       case DynGroupprivate::Fallback::Default_Mem:
-        result.fallback = mlir::omp::FallbackModifierAttr::get(
+        result.dynGroupprivateFallback = mlir::omp::FallbackModifierAttr::get(
             context, mlir::omp::FallbackModifier::default_mem);
         break;
       case DynGroupprivate::Fallback::Null:
-        result.fallback = mlir::omp::FallbackModifierAttr::get(
+        result.dynGroupprivateFallback = mlir::omp::FallbackModifierAttr::get(
             context, mlir::omp::FallbackModifier::null);
         break;
       }
