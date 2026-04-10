@@ -16,8 +16,7 @@ end module
 ! CHECK-LABEL: func.func @_QPtest_groupprivate
 ! CHECK: omp.target
 ! CHECK:   omp.teams
-! CHECK:     fir.address_of(@_QMmEx)
-! CHECK:     omp.groupprivate
+! CHECK:     omp.groupprivate @_QMmEx
 subroutine test_groupprivate()
   use m
 
@@ -40,8 +39,7 @@ end module
 ! CHECK-LABEL: func.func @_QPtest_common_block_groupprivate
 ! CHECK: omp.target
 ! CHECK:   omp.teams
-! CHECK:     fir.address_of(@blk_)
-! CHECK:     omp.groupprivate
+! CHECK:     omp.groupprivate @blk_
 ! CHECK:     fir.convert
 ! CHECK:     fir.coordinate_of
 subroutine test_common_block_groupprivate()

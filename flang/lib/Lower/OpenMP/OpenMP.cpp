@@ -710,19 +710,16 @@ static void groupprivatizeVars(lower::AbstractConverter &converter,
       return mlir::Value();
     }
 
-    // Generate fir.address_of to get the global address
-    mlir::Value symAddr = fir::AddrOfOp::create(
-        firOpBuilder, currentLocation, global.resultType(), global.getSymbol());
-
     mlir::omp::DeclareTargetDeviceType deviceTypeEnum =
         mlir::omp::DeclareTargetDeviceType::any;
     mlir::omp::DeclareTargetDeviceTypeAttr deviceTypeAttr =
         mlir::omp::DeclareTargetDeviceTypeAttr::get(firOpBuilder.getContext(),
                                                     deviceTypeEnum);
 
-    return mlir::omp::GroupprivateOp::create(firOpBuilder, currentLocation,
-                                             symAddr.getType(), symAddr,
-                                             deviceTypeAttr);
+    return mlir::omp::GroupprivateOp::create(
+        firOpBuilder, currentLocation, global.resultType(),
+        mlir::FlatSymbolRefAttr::get(firOpBuilder.getContext(), globalName),
+        deviceTypeAttr);
   };
 
   llvm::SetVector<const semantics::Symbol *> groupprivateSyms;
