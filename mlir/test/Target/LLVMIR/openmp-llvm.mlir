@@ -3599,13 +3599,13 @@ llvm.mlir.global internal @nohost() : i32
 llvm.func @omp_groupprivate_device() attributes {
     omp.declare_target = #omp.declaretarget<device_type = (any), capture_clause = (to)>} {
   %0 = llvm.mlir.constant(1 : i32) : i32
-  %2 = omp.groupprivate @any : !llvm.ptr, device_type(any)
+  %2 = omp.groupprivate @any device_type(any) : !llvm.ptr
   llvm.store %0, %2 : i32, !llvm.ptr
 
-  %4 = omp.groupprivate @host : !llvm.ptr, device_type(host)
+  %4 = omp.groupprivate @host device_type(host) : !llvm.ptr
   llvm.store %0, %4 : i32, !llvm.ptr
 
-  %6 = omp.groupprivate @nohost : !llvm.ptr, device_type(nohost)
+  %6 = omp.groupprivate @nohost device_type(nohost) : !llvm.ptr
   llvm.store %0, %6 : i32, !llvm.ptr
   llvm.return
 }
@@ -3630,13 +3630,13 @@ llvm.mlir.global internal @host1() : i32
 llvm.mlir.global internal @nohost1() : i32
 llvm.func @omp_groupprivate_host() {
   %0 = llvm.mlir.constant(1 : i32) : i32
-  %2 = omp.groupprivate @any1 : !llvm.ptr, device_type(any)
+  %2 = omp.groupprivate @any1 device_type(any) : !llvm.ptr
   llvm.store %0, %2 : i32, !llvm.ptr
 
-  %4 = omp.groupprivate @host1 : !llvm.ptr, device_type(host)
+  %4 = omp.groupprivate @host1 device_type(host) : !llvm.ptr
   llvm.store %0, %4 : i32, !llvm.ptr
 
-  %6 = omp.groupprivate @nohost1 : !llvm.ptr, device_type(nohost)
+  %6 = omp.groupprivate @nohost1 device_type(nohost) : !llvm.ptr
   llvm.store %0, %6 : i32, !llvm.ptr
   llvm.return
 }

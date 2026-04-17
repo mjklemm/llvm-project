@@ -32,6 +32,8 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/ReplaceConstant.h"
+#include "llvm/Support/AMDGPUAddrSpace.h"
+#include "llvm/Support/NVPTXAddrSpace.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/TargetParser/Triple.h"
@@ -380,7 +382,8 @@ static LogicalResult checkImplementationStatus(Operation &op) {
 
     if (op.hasNumTeamsMultiDim() &&
         !isa_and_present<omp::TargetOp>(op->getParentOp()))
-      result = todo("num_teams with multi-dimensional values outside target region");
+      result =
+          todo("num_teams with multi-dimensional values outside target region");
   };
   auto checkNumThreads = [&todo](auto op, LogicalResult &result) {
     if (op.getNumThreadsDimsCount() > 3) {
@@ -5561,16 +5564,15 @@ emitUserDefinedMapper(Operation *op, llvm::IRBuilderBase &builder,
 }
 
 static llvm::omp::OMPDynGroupprivateFallbackType
-getDynGroupprivateFallbackType(omp::TargetOp targetOp) {
-  mlir::omp::FallbackModifier fb =
-      targetOp.getDynGroupprivateFallback().value_or(
-          mlir::omp::FallbackModifier::default_mem);
+getDynGroupprivateFallbackType(omp::FallbackModifierAttr fallbackAttr) {
+  omp::FallbackModifier fb = fallbackAttr ? fallbackAttr.getValue()
+                                          : omp::FallbackModifier::default_mem;
   switch (fb) {
-  case mlir::omp::FallbackModifier::abort:
+  case omp::FallbackModifier::abort:
     return llvm::omp::OMPDynGroupprivateFallbackType::Abort;
-  case mlir::omp::FallbackModifier::null:
+  case omp::FallbackModifier::null:
     return llvm::omp::OMPDynGroupprivateFallbackType::Null;
-  case mlir::omp::FallbackModifier::default_mem:
+  case omp::FallbackModifier::default_mem:
     return llvm::omp::OMPDynGroupprivateFallbackType::DefaultMem;
   }
 
@@ -6248,8 +6250,9 @@ static void extractHostEvalClauses(
                   break;
                 }
               }
-            } else
+            } else {
               llvm_unreachable("unsupported host_eval use");
+            }
           })
           .Case([&](omp::ParallelOp parallelOp) {
             if (llvm::is_contained(parallelOp.getNumThreadsVars(), blockArg)) {
@@ -6262,8 +6265,9 @@ static void extractHostEvalClauses(
                   break;
                 }
               }
-            } else
+            } else {
               llvm_unreachable("unsupported host_eval use");
+            }
           })
           .Case([&](omp::LoopNestOp loopOp) {
             auto processBounds =
@@ -6405,6 +6409,8 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
         if (upperVar) {
           if (auto val = extractConstInteger(upperVar))
             maxTeamsVals[i] = *val;
+          else
+            maxTeamsVals[i] = 0;
         }
       }
       // unidimensional case. Per the spec, lower-bound may not be
@@ -6940,7 +6946,7 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
       dynSizeVal = moduleTranslation.lookupValue(dynGroupPrivateSize);
   
     llvm::omp::OMPDynGroupprivateFallbackType fallbackType =
-        getDynGroupprivateFallbackType(targetOp);
+        getDynGroupprivateFallbackType(targetOp.getDynGroupprivateFallbackAttr());
 
   llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP =
       moduleTranslation.getOpenMPBuilder()->createTarget(
@@ -7318,7 +7324,7 @@ convertOmpGroupprivate(Operation &opInst, llvm::IRBuilderBase &builder,
 
   // Look up the global variable directly by symbol name.
   LLVM::GlobalOp global = SymbolTable::lookupNearestSymbolFrom<LLVM::GlobalOp>(
-      &opInst, groupprivateOp.getSymNameAttr());
+    &opInst, groupprivateOp.getSymNameAttr());
   if (!global)
     return opInst.emitError()
            << "expected symbol '" << groupprivateOp.getSymName()
@@ -7332,22 +7338,25 @@ convertOmpGroupprivate(Operation &opInst, llvm::IRBuilderBase &builder,
   if (shouldAllocate && isTargetDevice) {
     llvm::Module *llvmModule = moduleTranslation.getLLVMModule();
     llvm::Triple targetTriple(llvmModule->getTargetTriple());
-    if (targetTriple.isAMDGCN() || targetTriple.isNVPTX()) {
-      unsigned sharedAddressSpace = 3;
-      llvm::GlobalVariable *sharedVar = new llvm::GlobalVariable(
-          *llvmModule, varType, /*isConstant=*/false,
-          llvm::GlobalValue::InternalLinkage, llvm::PoisonValue::get(varType),
-          varName, /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
-          sharedAddressSpace,
-          /*isExternallyInitialized=*/false);
-      resultPtr = sharedVar;
-    } else {
+    unsigned sharedAddressSpace;
+    if (targetTriple.isAMDGCN())
+      sharedAddressSpace = llvm::AMDGPUAS::LOCAL_ADDRESS;
+    else if (targetTriple.isNVPTX())
+      sharedAddressSpace = llvm::NVPTXAS::ADDRESS_SPACE_SHARED;
+    else
       return opInst.emitError() << "groupprivate is not supported for target: "
                                 << targetTriple.str();
-    }
+    llvm::GlobalVariable *sharedVar = new llvm::GlobalVariable(
+        *llvmModule, varType, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage, llvm::PoisonValue::get(varType),
+        varName, /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
+        sharedAddressSpace,
+        /*isExternallyInitialized=*/false);
+    resultPtr = sharedVar;
   } else {
-    // Use original global address on host or when not allocating
-    // group-private storage.
+    if (shouldAllocate && !isTargetDevice)
+      opInst.emitWarning("groupprivate directive is currently ignored on the "
+                         "host, using original global");
     resultPtr = globalValue;
   }
 

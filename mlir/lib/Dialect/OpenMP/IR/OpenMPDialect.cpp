@@ -823,6 +823,7 @@ static ParseResult parseDynGroupprivateClause(
 
 bool parsedAccessGroup = false;
 bool parsedFallback = false;
+bool parsedSize = false;
 
 return parser.parseCommaSeparatedList([&]() -> ParseResult {
   // Parse AccessGroupModifier.
@@ -865,18 +866,22 @@ return parser.parseCommaSeparatedList([&]() -> ParseResult {
     parsedFallback = true;
     return success();
   }
-  // Parse size operand.
-  OpAsmParser::UnresolvedOperand operand;
-  if (succeeded(parser.parseOperand(operand))) {
-    dynGroupprivateSize = operand;
-    if (failed(parser.parseColon()) || failed(parser.parseType(sizeType)))
-      return parser.emitError(parser.getCurrentLocation(),
-                              "expected ':' and type after size operand");
-    return success();
-  }
-  return parser.emitError(parser.getCurrentLocation(),
-                          "expected dyn_groupprivate_size operand");
-});
+    // Parse size operand.
+    OpAsmParser::UnresolvedOperand operand;
+    if (succeeded(parser.parseOperand(operand))) {
+      if (parsedSize)
+        return parser.emitError(parser.getCurrentLocation(),
+                                "duplicate size operand");
+      dynGroupprivateSize = operand;
+      parsedSize = true;
+      if (failed(parser.parseColon()) || failed(parser.parseType(sizeType)))
+        return parser.emitError(parser.getCurrentLocation(),
+                                "expected ':' and type after size operand");
+      return success();
+    }
+    return parser.emitError(parser.getCurrentLocation(),
+                            "expected dyn_groupprivate_size operand");
+  });
 }
 
 static void printDynGroupprivateClause(OpAsmPrinter &printer, Operation *op,
@@ -4924,8 +4929,9 @@ LogicalResult IteratorOp::verify() {
 // GroupprivateOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult GroupprivateOp::verify() {
-  auto *symbol = SymbolTable::lookupNearestSymbolFrom(*this, getSymNameAttr());
+LogicalResult
+GroupprivateOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto *symbol = symbolTable.lookupNearestSymbolFrom(*this, getSymNameAttr());
   if (!symbol)
     return emitOpError() << "expected symbol reference '" << getSymName()
                          << "' to point to a global variable";
