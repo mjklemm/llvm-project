@@ -575,10 +575,15 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                             KernelArgs.ThreadLimit[2]};
   uint32_t NumBlocks[3] = {KernelArgs.NumTeams[0], KernelArgs.NumTeams[1],
                            KernelArgs.NumTeams[2]};
-  if (!isBareMode() && !NumThreads[1] && !NumThreads[2])
+  // CorrectMultiDim() in libomptarget normalizes unset dims from 0 -> 1, so
+  // single-dim kernels look like [X, 1, 1]. Treat <= 1 in dims 1/2 as "not
+  // multi-dim" and apply the default-picking logic. Without this, an
+  // unspecified num_threads/num_teams (0 in dim 0) would propagate straight
+  // to the launch and result in a 0-thread or 0-block grid.
+  if (!isBareMode() && NumThreads[1] <= 1 && NumThreads[2] <= 1)
     NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
 
-  if (!isBareMode() && !NumBlocks[1] && !NumBlocks[2])
+  if (!isBareMode() && NumBlocks[1] <= 1 && NumBlocks[2] <= 1)
     NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
                                 NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
 
