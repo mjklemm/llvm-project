@@ -6593,8 +6593,16 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
   attrs.TeamsThreadLimit.resize(maxDims);
 
   // Handle multi-dimensional num_threads (only first value for now)
-  if (!numThreadsVars.empty())
-    attrs.MaxThreads.front() = moduleTranslation.lookupValue(numThreadsVars[0]);
+  if (!numThreadsVars.empty()) {
+    attrs.MaxThreads.clear();
+    llvm::transform(numThreadsVars, std::back_inserter(attrs.MaxThreads),
+                    [&](Value numVar) -> llvm::Value * {
+                      return numVar ? builder.CreateSExtOrTrunc(
+                                          moduleTranslation.lookupValue(numVar),
+                                          builder.getInt32Ty())
+                                    : nullptr;
+                    });
+  }
 
   if (omp::bitEnumContainsAny(targetOp.getKernelExecFlags(capturedOp),
                               omp::TargetRegionFlags::trip_count)) {
