@@ -9265,23 +9265,38 @@ static void emitTargetCall(
                    : Clause;
     };
 
-    // If a multi-dimensional THREAD_LIMIT is set, it is the OMPX_BARE case, so
-    // the NUM_THREADS clause is overriden by THREAD_LIMIT.
-    SmallVector<Value *, 3> NumThreadsC;
-    Value *MaxThreadsClause =
-        RuntimeAttrs.TeamsThreadLimit.size() == 1
-            ? InitMaxThreadsClause(RuntimeAttrs.MaxThreads)
-            : nullptr;
+    assert(RuntimeAttrs.MaxThreads <= RuntimeAttrs.TeamsThreadLimit &&
+           "MaxThreads cannot have more values than TeamsThreadLimit.");
+    assert(RuntimeAttrs.MaxThreads <= RuntimeAttrs.TargetThreadLimit &&
+           "MaxThreads cannot have more values than TargetThreadLimit.");
 
-    for (auto [TeamsVal, TargetVal] : zip_equal(
-             RuntimeAttrs.TeamsThreadLimit, RuntimeAttrs.TargetThreadLimit)) {
-      Value *TeamsThreadLimitClause = InitMaxThreadsClause(TeamsVal);
-      Value *NumThreads = InitMaxThreadsClause(TargetVal);
+    // Normalize the provided MaxThreads by excluding null values.
+    SmallVector<Value *, 3> NumThreadsVals;
+    for (auto *Val : RuntimeAttrs.MaxThreads) {
+      if (Val == nullptr)
+        break;
+      NumThreadsVals.push_back(Val);
+    }
 
-      CombineMaxThreadsClauses(TeamsThreadLimitClause, NumThreads);
-      CombineMaxThreadsClauses(MaxThreadsClause, NumThreads);
+    SmallVector<Value *, 3> NumThreads;
+    for (auto [Idx, ZippedVals] : llvm::enumerate(llvm::zip_equal(
+             RuntimeAttrs.TeamsThreadLimit, RuntimeAttrs.TargetThreadLimit))) {
+      auto [TeamsVal, TargetVal] = ZippedVals;
 
-      NumThreadsC.push_back(NumThreads ? NumThreads : Builder.getInt32(0));
+      // The 'num_threads' was specified with less dimensions. The number of
+      // dimensions indicated in this clause has priority over 'thread_limit'.
+      if (!NumThreadsVals.empty() && Idx >= NumThreadsVals.size())
+        break;
+
+      Value *TeamsThreadLimitC = InitMaxThreadsClause(TeamsVal);
+      Value *TargetThreadLimitC = InitMaxThreadsClause(TargetVal);
+      Value *NumThreadsC = InitMaxThreadsClause(
+          !NumThreadsVals.empty() ? NumThreadsVals[Idx] : nullptr);
+
+      CombineMaxThreadsClauses(TeamsThreadLimitC, TargetThreadLimitC);
+      CombineMaxThreadsClauses(TargetThreadLimitC, NumThreadsC);
+
+      NumThreads.push_back(NumThreadsC ? NumThreadsC : Builder.getInt32(0));
     }
 
     unsigned NumTargetItems = Info.NumberOfPtrs;
@@ -9301,7 +9316,7 @@ static void emitTargetCall(
       DynCGroupMem = Builder.getInt32(0);
 
     KArgs = OpenMPIRBuilder::TargetKernelArgs(
-        NumTargetItems, RTArgs, TripCount, NumTeamsC, NumThreadsC, DynCGroupMem,
+        NumTargetItems, RTArgs, TripCount, NumTeamsC, NumThreads, DynCGroupMem,
         HasNoWait, DynCGroupMemFallback);
 
     // Assume no error was returned because TaskBodyCB and

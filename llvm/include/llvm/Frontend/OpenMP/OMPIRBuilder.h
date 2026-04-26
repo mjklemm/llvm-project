@@ -2680,7 +2680,7 @@ public:
 
     /// 'parallel' construct 'num_threads' clause value, if present and it is an
     /// SPMD kernel.
-    Value *MaxThreads = nullptr;
+    SmallVector<Value *, 3> MaxThreads = {nullptr};
 
     /// Total number of iterations of the SPMD or Generic-SPMD kernel or null if
     /// it is a generic kernel.

@@ -6594,7 +6594,7 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
 
   // Handle multi-dimensional num_threads (only first value for now)
   if (!numThreadsVars.empty())
-    attrs.MaxThreads = moduleTranslation.lookupValue(numThreadsVars[0]);
+    attrs.MaxThreads.front() = moduleTranslation.lookupValue(numThreadsVars[0]);
 
   if (omp::bitEnumContainsAny(targetOp.getKernelExecFlags(capturedOp),
                               omp::TargetRegionFlags::trip_count)) {
