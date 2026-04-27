@@ -9265,9 +9265,11 @@ static void emitTargetCall(
                    : Clause;
     };
 
-    assert(RuntimeAttrs.MaxThreads <= RuntimeAttrs.TeamsThreadLimit &&
+    assert(RuntimeAttrs.MaxThreads.size() <=
+               RuntimeAttrs.TeamsThreadLimit.size() &&
            "MaxThreads cannot have more values than TeamsThreadLimit.");
-    assert(RuntimeAttrs.MaxThreads <= RuntimeAttrs.TargetThreadLimit &&
+    assert(RuntimeAttrs.MaxThreads.size() <=
+               RuntimeAttrs.TargetThreadLimit.size() &&
            "MaxThreads cannot have more values than TargetThreadLimit.");
 
     // Normalize the provided MaxThreads by excluding null values.
