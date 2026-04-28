@@ -407,8 +407,24 @@ llvm.func @teams_private(%x : !llvm.ptr) {
 
 // -----
 
-llvm.func @teams_num_teams_multi_dim(%lb : i32, %ub : i32) {
-  // expected-error@below {{not yet implemented: Unhandled clause num_teams with multi-dimensional values in omp.teams operation}}
+llvm.func @teams_num_teams_too_many_dims() {
+  // expected-error@below {{LLVM Translation failed for operation: omp.target}}
+  omp.target {
+    %c100 = llvm.mlir.constant(100 : i32) : i32
+    // expected-error@below {{not yet implemented: Unhandled clause num_teams with more than 3 dimensions in omp.teams operation}}
+    // expected-error@below {{LLVM Translation failed for operation: omp.teams}}
+    omp.teams num_teams(to %c100, %c100, %c100, %c100 : i32, i32, i32, i32) {
+      omp.terminator
+    }
+    omp.terminator
+  }
+  llvm.return
+}
+
+// -----
+
+llvm.func @teams_num_teams_multi_dim_standalone(%lb : i32, %ub : i32) {
+  // expected-error@below {{not yet implemented: Unhandled clause num_teams with multi-dimensional values outside target region in omp.teams operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.teams}}
   omp.teams num_teams(to %ub, %ub, %ub : i32, i32, i32) {
     omp.terminator
@@ -418,10 +434,10 @@ llvm.func @teams_num_teams_multi_dim(%lb : i32, %ub : i32) {
 
 // -----
 
-llvm.func @parallel_num_threads_multi_dim(%lb : i32, %ub : i32) {
-  // expected-error@below {{not yet implemented: Unhandled clause num_threads with multi-dimensional values in omp.parallel operation}}
+llvm.func @parallel_num_threads_too_many_dims(%lb : i32, %ub : i32) {
+  // expected-error@below {{not yet implemented: Unhandled clause num_threads with more than 3 dimensions in omp.parallel operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.parallel}}
-  omp.parallel num_threads(%lb, %ub : i32, i32) {
+  omp.parallel num_threads(%lb, %ub, %lb, %ub : i32, i32, i32, i32) {
     omp.terminator
   }
   llvm.return
@@ -429,10 +445,21 @@ llvm.func @parallel_num_threads_multi_dim(%lb : i32, %ub : i32) {
 
 // -----
 
-llvm.func @teams_thread_limit_multi_dim(%lb : i32, %ub : i32) {
-  // expected-error@below {{not yet implemented: Unhandled clause thread_limit with multi-dimensional values in omp.teams operation}}
+llvm.func @teams_thread_limit_too_many_dims(%lb : i32, %ub : i32) {
+  // expected-error@below {{not yet implemented: Unhandled clause thread_limit with more than 3 dimensions in omp.teams operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.teams}}
-  omp.teams thread_limit(%lb, %ub : i32, i32) {
+  omp.teams thread_limit(%lb, %ub, %lb, %ub : i32, i32, i32, i32) {
+    omp.terminator
+  }
+  llvm.return
+}
+
+// -----
+
+llvm.func @teams_dyn_groupprivate(%dyn_size : i32) {
+  // expected-error@below {{not yet implemented: Unhandled clause dyn_groupprivate in omp.teams operation}}
+  // expected-error@below {{LLVM Translation failed for operation: omp.teams}}
+  omp.teams dyn_groupprivate(%dyn_size : i32) {
     omp.terminator
   }
   llvm.return

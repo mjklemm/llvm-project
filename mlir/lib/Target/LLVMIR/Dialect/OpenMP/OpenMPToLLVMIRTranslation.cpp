@@ -32,6 +32,8 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/ReplaceConstant.h"
+#include "llvm/Support/AMDGPUAddrSpace.h"
+#include "llvm/Support/NVPTXAddrSpace.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/TargetParser/Triple.h"
@@ -373,17 +375,36 @@ static LogicalResult checkImplementationStatus(Operation &op) {
       result = todo("task_reduction");
   };
   auto checkNumTeams = [&todo](auto op, LogicalResult &result) {
-    if (op.hasNumTeamsMultiDim())
-      result = todo("num_teams with multi-dimensional values");
+    if (op.getNumTeamsDimsCount() > 3) {
+      result = todo("num_teams with more than 3 dimensions");
+      return;
+    }
+
+    if (op.hasNumTeamsMultiDim() &&
+        !isa_and_present<omp::TargetOp>(op->getParentOp()))
+      result =
+          todo("num_teams with multi-dimensional values outside target region");
   };
   auto checkNumThreads = [&todo](auto op, LogicalResult &result) {
-    if (op.hasNumThreadsMultiDim())
-      result = todo("num_threads with multi-dimensional values");
+    if (op.getNumThreadsDimsCount() > 3) {
+      result = todo("num_threads with more than 3 dimensions");
+      return;
+    }
+
+    if (op.hasNumThreadsMultiDim() &&
+        !op->template getParentOfType<omp::TargetOp>())
+      result = todo(
+          "num_threads with multi-dimensional values outside target region");
   };
 
   auto checkThreadLimit = [&todo](auto op, LogicalResult &result) {
-    if (op.hasThreadLimitMultiDim())
-      result = todo("thread_limit with multi-dimensional values");
+    if (op.getThreadLimitDimsCount() > 3)
+      result = todo("thread_limit with more than 3 dimensions");
+  };
+
+  auto checkDynGroupprivate = [&todo](auto op, LogicalResult &result) {
+    if (op.getDynGroupprivateSize())
+      result = todo("dyn_groupprivate");
   };
 
   LogicalResult result = success();
@@ -406,6 +427,7 @@ static LogicalResult checkImplementationStatus(Operation &op) {
         checkPrivate(op, result);
         checkNumTeams(op, result);
         checkThreadLimit(op, result);
+        checkDynGroupprivate(op, result);
       })
       .Case([&](omp::TaskOp op) {
         checkAffinity(op, result);
@@ -4208,6 +4230,26 @@ convertOmpCancellationPoint(omp::CancellationPointOp op,
   return success();
 }
 
+static LLVM::GlobalOp
+getGlobalFromSymbol(Operation *symOp,
+                    LLVM::ModuleTranslation &moduleTranslation,
+                    Operation *opInst) {
+
+  // Handle potential address space cast
+  if (auto asCast = dyn_cast<LLVM::AddrSpaceCastOp>(symOp))
+    symOp = asCast.getOperand().getDefiningOp();
+
+  // Check if we have an AddressOfOp
+  if (!isa<LLVM::AddressOfOp>(symOp)) {
+    if (opInst)
+      opInst->emitError("Addressing symbol not found");
+    return nullptr;
+  }
+
+  LLVM::AddressOfOp addressOfOp = cast<LLVM::AddressOfOp>(symOp);
+  return addressOfOp.getGlobal(moduleTranslation.symbolTable());
+}
+
 /// Converts an OpenMP Threadprivate operation into LLVM IR using
 /// OpenMPIRBuilder.
 static LogicalResult
@@ -4223,15 +4265,10 @@ convertOmpThreadprivate(Operation &opInst, llvm::IRBuilderBase &builder,
   Value symAddr = threadprivateOp.getSymAddr();
   auto *symOp = symAddr.getDefiningOp();
 
-  if (auto asCast = dyn_cast<LLVM::AddrSpaceCastOp>(symOp))
-    symOp = asCast.getOperand().getDefiningOp();
-
-  if (!isa<LLVM::AddressOfOp>(symOp))
-    return opInst.emitError("Addressing symbol not found");
-  LLVM::AddressOfOp addressOfOp = dyn_cast<LLVM::AddressOfOp>(symOp);
-
   LLVM::GlobalOp global =
-      addressOfOp.getGlobal(moduleTranslation.symbolTable());
+      getGlobalFromSymbol(symOp, moduleTranslation, &opInst);
+  if (!global)
+    return failure();
   llvm::GlobalValue *globalValue = moduleTranslation.lookupGlobal(global);
   llvm::Type *type = globalValue->getValueType();
   llvm::TypeSize typeSize =
@@ -5526,6 +5563,22 @@ emitUserDefinedMapper(Operation *op, llvm::IRBuilderBase &builder,
   return *newFn;
 }
 
+static llvm::omp::OMPDynGroupprivateFallbackType
+getDynGroupprivateFallbackType(omp::FallbackModifierAttr fallbackAttr) {
+  omp::FallbackModifier fb = fallbackAttr ? fallbackAttr.getValue()
+                                          : omp::FallbackModifier::default_mem;
+  switch (fb) {
+  case omp::FallbackModifier::abort:
+    return llvm::omp::OMPDynGroupprivateFallbackType::Abort;
+  case omp::FallbackModifier::null:
+    return llvm::omp::OMPDynGroupprivateFallbackType::Null;
+  case omp::FallbackModifier::default_mem:
+    return llvm::omp::OMPDynGroupprivateFallbackType::DefaultMem;
+  }
+
+  llvm_unreachable("unexpected dyn_groupprivate fallback type");
+}
+
 static LogicalResult
 convertOmpTargetData(Operation *op, llvm::IRBuilderBase &builder,
                      LLVM::ModuleTranslation &moduleTranslation) {
@@ -6157,13 +6210,13 @@ createDeviceArgumentAccessor(MapInfoData &mapData, llvm::Argument &arg,
 ///
 /// Loop bounds and steps are only optionally populated, if output vectors are
 /// provided.
-static void
-extractHostEvalClauses(omp::TargetOp targetOp, Value &numThreads,
-                       Value &numTeamsLower, Value &numTeamsUpper,
-                       Value &threadLimit,
-                       llvm::SmallVectorImpl<Value> *lowerBounds = nullptr,
-                       llvm::SmallVectorImpl<Value> *upperBounds = nullptr,
-                       llvm::SmallVectorImpl<Value> *steps = nullptr) {
+static void extractHostEvalClauses(
+    omp::TargetOp targetOp, llvm::SmallVectorImpl<Value> &numThreadsVars,
+    Value &numTeamsLower, llvm::SmallVectorImpl<Value> &numTeamsUpperVars,
+    llvm::SmallVectorImpl<Value> &threadLimitVars,
+    llvm::SmallVectorImpl<Value> *lowerBounds = nullptr,
+    llvm::SmallVectorImpl<Value> *upperBounds = nullptr,
+    llvm::SmallVectorImpl<Value> *steps = nullptr) {
   auto blockArgIface = llvm::cast<omp::BlockArgOpenMPOpInterface>(*targetOp);
   for (auto item : llvm::zip_equal(targetOp.getHostEvalVars(),
                                    blockArgIface.getHostEvalBlockArgs())) {
@@ -6175,20 +6228,46 @@ extractHostEvalClauses(omp::TargetOp targetOp, Value &numThreads,
             if (teamsOp.getNumTeamsLower() == blockArg)
               numTeamsLower = hostEvalVar;
             else if (llvm::is_contained(teamsOp.getNumTeamsUpperVars(),
-                                        blockArg))
-              numTeamsUpper = hostEvalVar;
-            else if (!teamsOp.getThreadLimitVars().empty() &&
-                     teamsOp.getThreadLimit(0) == blockArg)
-              threadLimit = hostEvalVar;
-            else
+                                        blockArg)) {
+              // Find which dimension this blockArg corresponds to
+              for (auto [i, upperVar] :
+                   llvm::enumerate(teamsOp.getNumTeamsUpperVars())) {
+                if (upperVar == blockArg) {
+                  if (numTeamsUpperVars.size() <= i)
+                    numTeamsUpperVars.resize(i + 1);
+                  numTeamsUpperVars[i] = hostEvalVar;
+                  break;
+                }
+              }
+            } else if (llvm::is_contained(teamsOp.getThreadLimitVars(),
+                                          blockArg)) {
+              for (auto [i, limitVar] :
+                   llvm::enumerate(teamsOp.getThreadLimitVars())) {
+                if (limitVar == blockArg) {
+                  if (threadLimitVars.size() <= i)
+                    threadLimitVars.resize(i + 1);
+                  threadLimitVars[i] = hostEvalVar;
+                  break;
+                }
+              }
+            } else {
               llvm_unreachable("unsupported host_eval use");
+            }
           })
           .Case([&](omp::ParallelOp parallelOp) {
-            if (!parallelOp.getNumThreadsVars().empty() &&
-                parallelOp.getNumThreads(0) == blockArg)
-              numThreads = hostEvalVar;
-            else
+            if (llvm::is_contained(parallelOp.getNumThreadsVars(), blockArg)) {
+              for (auto [i, threadsVar] :
+                   llvm::enumerate(parallelOp.getNumThreadsVars())) {
+                if (threadsVar == blockArg) {
+                  if (numThreadsVars.size() <= i)
+                    numThreadsVars.resize(i + 1);
+                  numThreadsVars[i] = hostEvalVar;
+                  break;
+                }
+              }
+            } else {
               llvm_unreachable("unsupported host_eval use");
+            }
           })
           .Case([&](omp::LoopNestOp loopOp) {
             auto processBounds =
@@ -6288,48 +6367,69 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
                        bool isTargetDevice, bool isGPU) {
   // TODO: Handle constant 'if' clauses.
 
-  Value numThreads, numTeamsLower, numTeamsUpper, threadLimit;
+  Value numTeamsLower;
+  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars, threadLimitVars;
   if (!isTargetDevice) {
-    extractHostEvalClauses(targetOp, numThreads, numTeamsLower, numTeamsUpper,
-                           threadLimit);
+    extractHostEvalClauses(targetOp, numThreadsVars, numTeamsLower,
+                           numTeamsUpperVars, threadLimitVars);
   } else {
     // In the target device, values for these clauses are not passed as
     // host_eval, but instead evaluated prior to entry to the region. This
     // ensures values are mapped and available inside of the target region.
     if (auto teamsOp = castOrGetParentOfType<omp::TeamsOp>(capturedOp)) {
       numTeamsLower = teamsOp.getNumTeamsLower();
-      // Handle num_teams upper bounds (only first value for now)
-      if (!teamsOp.getNumTeamsUpperVars().empty())
-        numTeamsUpper = teamsOp.getNumTeams(0);
-      if (!teamsOp.getThreadLimitVars().empty())
-        threadLimit = teamsOp.getThreadLimit(0);
+      // Handle all num_teams upper bound dimensions
+      numTeamsUpperVars.reserve(teamsOp.getNumTeamsUpperVars().size());
+      for (auto upperVar : teamsOp.getNumTeamsUpperVars())
+        numTeamsUpperVars.push_back(upperVar);
+      // Handle thread_limit (only first value for now)
+      threadLimitVars.reserve(teamsOp.getThreadLimitVars().size());
+      for (auto limitVar : teamsOp.getThreadLimitVars())
+        threadLimitVars.push_back(limitVar);
     }
 
     if (auto parallelOp = castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
-      if (!parallelOp.getNumThreadsVars().empty())
-        numThreads = parallelOp.getNumThreads(0);
+      // Handle multi-dimensional num_threads
+      numThreadsVars.reserve(parallelOp.getNumThreadsVars().size());
+      for (auto threadsVar : parallelOp.getNumThreadsVars())
+        numThreadsVars.push_back(threadsVar);
     }
   }
 
   // Handle clauses impacting the number of teams.
 
-  int32_t minTeamsVal = 1, maxTeamsVal = -1;
+  int32_t minTeamsVal = 1;
+  llvm::SmallVector<int32_t, 3> maxTeamsVals(
+      std::max(numTeamsUpperVars.size(), static_cast<size_t>(1)), -1);
   if (castOrGetParentOfType<omp::TeamsOp>(capturedOp)) {
-    // TODO: Use `hostNumTeamsLower` to initialize `minTeamsVal`. For now,
+    // TODO: Use `numTeamsLower` to initialize `minTeamsVal`. For now,
     // match clang and set min and max to the same value.
-    if (numTeamsUpper) {
-      if (auto val = extractConstInteger(numTeamsUpper))
-        minTeamsVal = maxTeamsVal = *val;
+    if (!numTeamsUpperVars.empty()) {
+      for (auto [i, upperVar] : llvm::enumerate(numTeamsUpperVars)) {
+        if (upperVar) {
+          if (auto val = extractConstInteger(upperVar))
+            maxTeamsVals[i] = *val;
+          else
+            maxTeamsVals[i] = 0;
+        }
+      }
+      // unidimensional case. Per the spec, lower-bound may not be
+      // specified when the dims modifier is specified, and when unspecified
+      // it equals the upper bound. In the multidimensional case,
+      // maxTeamsVals should be used as both lower and upper bounds for each
+      // dimension.
+      if (maxTeamsVals[0] >= 0)
+        minTeamsVal = maxTeamsVals[0];
     } else {
-      minTeamsVal = maxTeamsVal = 0;
+      minTeamsVal = maxTeamsVals[0] = 0;
     }
   } else if (castOrGetParentOfType<omp::ParallelOp>(capturedOp,
                                                     /*immediateParent=*/true) ||
              castOrGetParentOfType<omp::SimdOp>(capturedOp,
                                                 /*immediateParent=*/true)) {
-    minTeamsVal = maxTeamsVal = 1;
+    minTeamsVal = maxTeamsVals[0] = 1;
   } else {
-    minTeamsVal = maxTeamsVal = -1;
+    minTeamsVal = maxTeamsVals[0] = -1;
   }
 
   // Handle clauses impacting the number of threads.
@@ -6347,31 +6447,46 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
       result = 0;
   };
 
-  // Extract 'thread_limit' clause from 'target' and 'teams' directives.
-  int32_t targetThreadLimitVal = -1, teamsThreadLimitVal = -1;
-  if (!targetOp.getThreadLimitVars().empty())
-    setMaxValueFromClause(targetOp.getThreadLimit(0), targetThreadLimitVal);
-  setMaxValueFromClause(threadLimit, teamsThreadLimitVal);
+// Extract 'thread_limit' clause from 'target' and 'teams'. The number of
+  // dimensions is determined by the clauses present (the >3 dims check in
+  // checkImplementationStatus guards against unsupported counts).
+  size_t numTargetDims = targetOp.getThreadLimitVars().size();
+  size_t numTeamsDims = threadLimitVars.size();
+  size_t numParallelDims = numThreadsVars.size();
+  size_t numDims =
+      std::max({numTargetDims, numTeamsDims, numParallelDims, size_t(1)});
 
-  // Extract 'max_threads' clause from 'parallel' or set to 1 if it's SIMD.
-  int32_t maxThreadsVal = -1;
-  if (castOrGetParentOfType<omp::ParallelOp>(capturedOp))
-    setMaxValueFromClause(numThreads, maxThreadsVal);
-  else if (castOrGetParentOfType<omp::SimdOp>(capturedOp,
-                                              /*immediateParent=*/true))
-    maxThreadsVal = 1;
+  llvm::SmallVector<int32_t, 3> targetThreadLimitVals(numDims, -1);
+  llvm::SmallVector<int32_t, 3> teamsThreadLimitVals(numDims, -1);
+  for (auto [i, limitVar] : llvm::enumerate(targetOp.getThreadLimitVars()))
+    setMaxValueFromClause(limitVar, targetThreadLimitVals[i]);
+  for (auto [i, limitVar] : llvm::enumerate(threadLimitVars))
+    setMaxValueFromClause(limitVar, teamsThreadLimitVals[i]);
+
+  // Extract 'num_threads' clause from 'parallel' or set to 1 if it's SIMD.
+  llvm::SmallVector<int32_t, 3> maxThreadsVals(numDims, -1);
+  if (castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
+    for (auto [i, threadsVar] : llvm::enumerate(numThreadsVars))
+      setMaxValueFromClause(threadsVar, maxThreadsVals[i]);
+  } else if (castOrGetParentOfType<omp::SimdOp>(capturedOp,
+                                                /*immediateParent=*/true)) {
+    maxThreadsVals[0] = 1;
+  }
 
   // For max values, < 0 means unset, == 0 means set but unknown. Select the
-  // minimum value between 'max_threads' and 'thread_limit' clauses that were
-  // set.
-  int32_t combinedMaxThreadsVal = targetThreadLimitVal;
-  if (combinedMaxThreadsVal < 0 ||
-      (teamsThreadLimitVal >= 0 && teamsThreadLimitVal < combinedMaxThreadsVal))
-    combinedMaxThreadsVal = teamsThreadLimitVal;
-
-  if (combinedMaxThreadsVal < 0 ||
-      (maxThreadsVal >= 0 && maxThreadsVal < combinedMaxThreadsVal))
-    combinedMaxThreadsVal = maxThreadsVal;
+  // minimum value between 'num_threads' and 'thread_limit' clauses that were
+  // set, for each dimension.
+  llvm::SmallVector<int32_t, 3> combinedMaxThreadsVals(numDims, -1);
+  for (size_t i = 0; i < numDims; ++i) {
+    int32_t combined = targetThreadLimitVals[i];
+    if (combined < 0 ||
+        (teamsThreadLimitVals[i] >= 0 && teamsThreadLimitVals[i] < combined))
+      combined = teamsThreadLimitVals[i];
+    if (combined < 0 ||
+        (maxThreadsVals[i] >= 0 && maxThreadsVals[i] < combined))
+      combined = maxThreadsVals[i];
+    combinedMaxThreadsVals[i] = combined;
+  }
 
   int32_t reductionDataSize = 0;
   if (isGPU && capturedOp) {
@@ -6398,9 +6513,9 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
     attrs.ExecFlags = llvm::omp::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
 
   attrs.MinTeams = minTeamsVal;
-  attrs.MaxTeams.front() = maxTeamsVal;
+  attrs.MaxTeams = maxTeamsVals;
   attrs.MinThreads = 1;
-  attrs.MaxThreads.front() = combinedMaxThreadsVal;
+  attrs.MaxThreads = combinedMaxThreadsVals;
   attrs.ReductionDataSize = reductionDataSize;
   // TODO: Allow modified buffer length similar to
   // fopenmp-cuda-teams-reduction-recs-num flag in clang.
@@ -6422,17 +6537,23 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
   omp::LoopNestOp loopOp = castOrGetParentOfType<omp::LoopNestOp>(capturedOp);
   unsigned numLoops = loopOp ? loopOp.getNumLoops() : 0;
 
-  Value numThreads, numTeamsLower, numTeamsUpper, teamsThreadLimit;
+  Value numTeamsLower;
+  llvm::SmallVector<Value> numTeamsUpperVars, numThreadsVars, teamsThreadLimitVars;
   llvm::SmallVector<Value> lowerBounds(numLoops), upperBounds(numLoops),
       steps(numLoops);
-  extractHostEvalClauses(targetOp, numThreads, numTeamsLower, numTeamsUpper,
-                         teamsThreadLimit, &lowerBounds, &upperBounds, &steps);
+  extractHostEvalClauses(targetOp, numThreadsVars, numTeamsLower,
+                         numTeamsUpperVars, teamsThreadLimitVars, &lowerBounds,
+                         &upperBounds, &steps);
 
   // TODO: Handle constant 'if' clauses.
   if (!targetOp.getThreadLimitVars().empty()) {
-    Value targetThreadLimit = targetOp.getThreadLimit(0);
-    attrs.TargetThreadLimit.front() =
-        moduleTranslation.lookupValue(targetThreadLimit);
+    attrs.TargetThreadLimit.clear();
+    llvm::transform(targetOp.getThreadLimitVars(),
+                    std::back_inserter(attrs.TargetThreadLimit),
+                    [&](Value limitVar) -> llvm::Value * {
+                      return limitVar ? moduleTranslation.lookupValue(limitVar)
+                                      : nullptr;
+                    });
   }
 
   // The __kmpc_push_num_teams_51 function expects int32 as the arguments.  So,
@@ -6442,16 +6563,46 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
     attrs.MinTeams = builder.CreateSExtOrTrunc(
         moduleTranslation.lookupValue(numTeamsLower), builder.getInt32Ty());
 
-  if (numTeamsUpper)
-    attrs.MaxTeams.front() = builder.CreateSExtOrTrunc(
-        moduleTranslation.lookupValue(numTeamsUpper), builder.getInt32Ty());
+  // Handle multi-dimensional num_teams upper bounds
+  attrs.MaxTeams.resize(
+    std::max(numTeamsUpperVars.size(), static_cast<size_t>(1)));
+  for (auto [i, upperVar] : llvm::enumerate(numTeamsUpperVars)) {
+    if (upperVar)
+      attrs.MaxTeams[i] = builder.CreateSExtOrTrunc(
+          moduleTranslation.lookupValue(upperVar), builder.getInt32Ty());
+  }
 
-  if (teamsThreadLimit)
-    attrs.TeamsThreadLimit.front() = builder.CreateSExtOrTrunc(
-        moduleTranslation.lookupValue(teamsThreadLimit), builder.getInt32Ty());
+  if (!teamsThreadLimitVars.empty()) {
+    attrs.TeamsThreadLimit.clear();
+    llvm::transform(teamsThreadLimitVars,
+                    std::back_inserter(attrs.TeamsThreadLimit),
+                    [&](Value limitVar) -> llvm::Value * {
+                      return limitVar
+                                 ? builder.CreateSExtOrTrunc(
+                                       moduleTranslation.lookupValue(limitVar),
+                                       builder.getInt32Ty())
+                                 : nullptr;
+                    });
+  }
 
-  if (numThreads)
-    attrs.MaxThreads = moduleTranslation.lookupValue(numThreads);
+  // Ensure TargetThreadLimit and TeamsThreadLimit have matching sizes
+  // for zip_equal in OMPIRBuilder.
+  size_t maxDims =
+      std::max(attrs.TargetThreadLimit.size(), attrs.TeamsThreadLimit.size());
+  attrs.TargetThreadLimit.resize(maxDims);
+  attrs.TeamsThreadLimit.resize(maxDims);
+
+  // Handle multi-dimensional num_threads (only first value for now)
+  if (!numThreadsVars.empty()) {
+    attrs.MaxThreads.clear();
+    llvm::transform(numThreadsVars, std::back_inserter(attrs.MaxThreads),
+                    [&](Value numVar) -> llvm::Value * {
+                      return numVar ? builder.CreateSExtOrTrunc(
+                                          moduleTranslation.lookupValue(numVar),
+                                          builder.getInt32Ty())
+                                    : nullptr;
+                    });
+  }
 
   if (omp::bitEnumContainsAny(targetOp.getKernelExecFlags(capturedOp),
                               omp::TargetRegionFlags::trip_count)) {
@@ -6797,11 +6948,20 @@ convertOmpTarget(Operation &opInst, llvm::IRBuilderBase &builder,
   if (Value targetIfCond = targetOp.getIfExpr())
     ifCond = moduleTranslation.lookupValue(targetIfCond);
 
+    mlir::Value dynGroupPrivateSize = targetOp.getDynGroupprivateSize();
+    llvm::Value *dynSizeVal = nullptr;
+    if (dynGroupPrivateSize)
+      dynSizeVal = moduleTranslation.lookupValue(dynGroupPrivateSize);
+  
+    llvm::omp::OMPDynGroupprivateFallbackType fallbackType =
+        getDynGroupprivateFallbackType(targetOp.getDynGroupprivateFallbackAttr());
+
   llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP =
       moduleTranslation.getOpenMPBuilder()->createTarget(
           ompLoc, isOffloadEntry, allocaIP, builder.saveIP(), info, entryInfo,
           defaultAttrs, runtimeAttrs, ifCond, kernelInput, genMapInfoCB, bodyCB,
-          argAccessorCB, customMapperCB, dds, targetOp.getNowait());
+          argAccessorCB, customMapperCB, dds, targetOp.getNowait(), dynSizeVal,
+          fallbackType);
 
   if (failed(handleError(afterIP, opInst)))
     return failure();
@@ -7142,6 +7302,76 @@ convertTargetFreeMemOp(Operation &opInst, llvm::IRBuilderBase &builder,
   return success();
 }
 
+/// Converts an OpenMP groupprivate operation into LLVM IR.
+static LogicalResult
+convertOmpGroupprivate(Operation &opInst, llvm::IRBuilderBase &builder,
+                       LLVM::ModuleTranslation &moduleTranslation) {
+  llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
+  auto groupprivateOp = cast<omp::GroupprivateOp>(opInst);
+
+  if (failed(checkImplementationStatus(opInst)))
+    return failure();
+
+  bool isTargetDevice = ompBuilder->Config.isTargetDevice();
+
+  // Determine whether group-private storage should be allocated based on
+  // device_type. When not specified, default to 'any' (allocate on both).
+  bool shouldAllocate = true;
+  switch (groupprivateOp.getDeviceType().value_or(
+      mlir::omp::DeclareTargetDeviceType::any)) {
+  case mlir::omp::DeclareTargetDeviceType::host:
+    shouldAllocate = !isTargetDevice;
+    break;
+  case mlir::omp::DeclareTargetDeviceType::nohost:
+    shouldAllocate = isTargetDevice;
+    break;
+  case mlir::omp::DeclareTargetDeviceType::any:
+    shouldAllocate = true;
+    break;
+  }
+
+  // Look up the global variable directly by symbol name.
+  LLVM::GlobalOp global = SymbolTable::lookupNearestSymbolFrom<LLVM::GlobalOp>(
+    &opInst, groupprivateOp.getSymNameAttr());
+  if (!global)
+    return opInst.emitError()
+           << "expected symbol '" << groupprivateOp.getSymName()
+           << "' to reference an LLVM global variable";
+
+  llvm::GlobalValue *globalValue = moduleTranslation.lookupGlobal(global);
+  llvm::Type *varType = moduleTranslation.convertType(global.getType());
+  std::string varName = globalValue->getName().str();
+
+  llvm::Value *resultPtr;
+  if (shouldAllocate && isTargetDevice) {
+    llvm::Module *llvmModule = moduleTranslation.getLLVMModule();
+    llvm::Triple targetTriple(llvmModule->getTargetTriple());
+    unsigned sharedAddressSpace;
+    if (targetTriple.isAMDGCN())
+      sharedAddressSpace = llvm::AMDGPUAS::LOCAL_ADDRESS;
+    else if (targetTriple.isNVPTX())
+      sharedAddressSpace = llvm::NVPTXAS::ADDRESS_SPACE_SHARED;
+    else
+      return opInst.emitError() << "groupprivate is not supported for target: "
+                                << targetTriple.str();
+    llvm::GlobalVariable *sharedVar = new llvm::GlobalVariable(
+        *llvmModule, varType, /*isConstant=*/false,
+        llvm::GlobalValue::InternalLinkage, llvm::PoisonValue::get(varType),
+        varName, /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
+        sharedAddressSpace,
+        /*isExternallyInitialized=*/false);
+    resultPtr = sharedVar;
+  } else {
+    if (shouldAllocate && !isTargetDevice)
+      opInst.emitWarning("groupprivate directive is currently ignored on the "
+                         "host, using original global");
+    resultPtr = globalValue;
+  }
+
+  moduleTranslation.mapValue(opInst.getResult(0), resultPtr);
+  return success();
+}
+
 /// Given an OpenMP MLIR operation, create the corresponding LLVM IR (including
 /// OpenMP runtime calls).
 LogicalResult OpenMPDialectLLVMIRTranslationInterface::convertOperation(
@@ -7150,8 +7380,7 @@ LogicalResult OpenMPDialectLLVMIRTranslationInterface::convertOperation(
   llvm::OpenMPIRBuilder *ompBuilder = moduleTranslation.getOpenMPBuilder();
 
   if (ompBuilder->Config.isTargetDevice() &&
-      !isa<omp::TargetOp, omp::MapInfoOp, omp::TerminatorOp, omp::YieldOp>(
-          op) &&
+      !isa<omp::TargetOp, omp::MapInfoOp, omp::TerminatorOp, omp::YieldOp>(op) &&
       isHostDeviceOp(op))
     return op->emitOpError() << "unsupported host op found in device";
 
@@ -7336,6 +7565,9 @@ LogicalResult OpenMPDialectLLVMIRTranslationInterface::convertOperation(
           })
           .Case([&](omp::TargetFreeMemOp) {
             return convertTargetFreeMemOp(*op, builder, moduleTranslation);
+          })
+          .Case([&](omp::GroupprivateOp) {
+            return convertOmpGroupprivate(*op, builder, moduleTranslation);
           })
           .Default([&](Operation *inst) {
             return inst->emitError()

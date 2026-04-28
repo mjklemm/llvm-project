@@ -7725,25 +7725,13 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
     assert(Kernel && "Expected the real kernel to exist");
   }
 
+  bool IsThreadsMultiDim = Attrs.MaxThreads.size() > 1;
+  bool IsTeamsMultiDim = Attrs.MaxTeams.size() > 1;
+
   // Manifest the launch configuration in the metadata matching the kernel
   // environment.
-  int32_t MaxTeamsVal = -1;
-  int32_t MaxTeamsVals[3] = { 1, 1, 1 };
-  if (Attrs.MaxTeams[0] > 0) {
-    MaxTeamsVals[0] = Attrs.MaxTeams[0];
-    MaxTeamsVal = MaxTeamsVals[0];
-    if (Attrs.MaxTeams.size() > 1 && Attrs.MaxTeams[1] > 0) {
-      MaxTeamsVals[1] = Attrs.MaxTeams[1];
-      MaxTeamsVal *= MaxTeamsVals[1];
-      if (Attrs.MaxTeams.size() > 2 && Attrs.MaxTeams[2] > 0) {
-        MaxTeamsVals[2] = Attrs.MaxTeams[2];
-        MaxTeamsVal *= MaxTeamsVals[2];
-      }
-    }
-  }
-
-  if (MaxTeamsVal > 0)
-    writeTeamsForKernel(T, *Kernel, Attrs.MinTeams, MaxTeamsVal, MaxTeamsVals);
+  if (!IsTeamsMultiDim && (Attrs.MinTeams > 1 || Attrs.MaxTeams.front() > 0))
+    writeTeamsForKernel(T, *Kernel, Attrs.MinTeams, Attrs.MaxTeams.front());
 
   // If MaxThreads not set, select the maximum between the default workgroup
   // size and the MinThreads value.
@@ -7752,13 +7740,13 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
     MaxThreadsVal = std::max(
         int32_t(getGridValue(T, Kernel).GV_Default_WG_Size), Attrs.MinThreads);
 
-  if (MaxThreadsVal > 0)
+  if (!IsThreadsMultiDim && MaxThreadsVal > 0)
     writeThreadBoundsForKernel(T, *Kernel, Attrs.MinThreads, MaxThreadsVal);
 
-  Constant *MinThreads = ConstantInt::getSigned(Int32, Attrs.MinThreads);
-  Constant *MaxThreads = ConstantInt::getSigned(Int32, MaxThreadsVal);
-  Constant *MinTeams = ConstantInt::getSigned(Int32, Attrs.MinTeams);
-  Constant *MaxTeams = ConstantInt::getSigned(Int32, MaxTeamsVal);
+  Constant *MinThreads = ConstantInt::getSigned(Int32, (!IsThreadsMultiDim) ? Attrs.MinThreads : 0);
+  Constant *MaxThreads = ConstantInt::getSigned(Int32, (!IsThreadsMultiDim) ? MaxThreadsVal : 0);
+  Constant *MinTeams = ConstantInt::getSigned(Int32, (!IsTeamsMultiDim) ? Attrs.MinTeams : 0);
+  Constant *MaxTeams = ConstantInt::getSigned(Int32, (!IsTeamsMultiDim) ? Attrs.MaxTeams.front() : 0);
   Constant *ReductionDataSize =
       ConstantInt::getSigned(Int32, Attrs.ReductionDataSize);
   Constant *ReductionBufferLength =
@@ -7946,13 +7934,14 @@ OpenMPIRBuilder::readTeamBoundsForKernel(const Triple &, Function &Kernel) {
 }
 
 void OpenMPIRBuilder::writeTeamsForKernel(const Triple &T, Function &Kernel,
-                                          int32_t LB, int32_t UBTotal, int32_t UB[3]) {
+                                          int32_t LB, int32_t UB) {
   if (T.isNVPTX())
-    Kernel.addFnAttr("nvvm.maxclusterrank", llvm::utostr(UBTotal));
+    if (UB > 0)
+      Kernel.addFnAttr("nvvm.maxclusterrank", llvm::utostr(UB));
   if (T.isAMDGPU())
-    Kernel.addFnAttr("amdgpu-max-num-workgroups", llvm::utostr(UB[0]) + "," + llvm::utostr(UB[1]) + "," + llvm::utostr(UB[2]));
+    Kernel.addFnAttr("amdgpu-max-num-workgroups", llvm::utostr(LB) + ",1,1");
 
-  Kernel.addFnAttr("omp_target_num_teams", std::to_string(UBTotal));
+  Kernel.addFnAttr("omp_target_num_teams", std::to_string(LB));
 }
 
 void OpenMPIRBuilder::setOutlinedTargetRegionFunctionAttributes(
@@ -9265,23 +9254,40 @@ static void emitTargetCall(
                    : Clause;
     };
 
-    // If a multi-dimensional THREAD_LIMIT is set, it is the OMPX_BARE case, so
-    // the NUM_THREADS clause is overriden by THREAD_LIMIT.
-    SmallVector<Value *, 3> NumThreadsC;
-    Value *MaxThreadsClause =
-        RuntimeAttrs.TeamsThreadLimit.size() == 1
-            ? InitMaxThreadsClause(RuntimeAttrs.MaxThreads)
-            : nullptr;
+    assert(RuntimeAttrs.MaxThreads.size() <=
+               RuntimeAttrs.TeamsThreadLimit.size() &&
+           "MaxThreads cannot have more values than TeamsThreadLimit.");
+    assert(RuntimeAttrs.MaxThreads.size() <=
+               RuntimeAttrs.TargetThreadLimit.size() &&
+           "MaxThreads cannot have more values than TargetThreadLimit.");
 
-    for (auto [TeamsVal, TargetVal] : zip_equal(
-             RuntimeAttrs.TeamsThreadLimit, RuntimeAttrs.TargetThreadLimit)) {
-      Value *TeamsThreadLimitClause = InitMaxThreadsClause(TeamsVal);
-      Value *NumThreads = InitMaxThreadsClause(TargetVal);
+    // Normalize the provided MaxThreads by excluding null values.
+    SmallVector<Value *, 3> NumThreadsVals;
+    for (auto *Val : RuntimeAttrs.MaxThreads) {
+      if (Val == nullptr)
+        break;
+      NumThreadsVals.push_back(Val);
+    }
 
-      CombineMaxThreadsClauses(TeamsThreadLimitClause, NumThreads);
-      CombineMaxThreadsClauses(MaxThreadsClause, NumThreads);
+    SmallVector<Value *, 3> NumThreads;
+    for (auto [Idx, ZippedVals] : llvm::enumerate(llvm::zip_equal(
+             RuntimeAttrs.TeamsThreadLimit, RuntimeAttrs.TargetThreadLimit))) {
+      auto [TeamsVal, TargetVal] = ZippedVals;
 
-      NumThreadsC.push_back(NumThreads ? NumThreads : Builder.getInt32(0));
+      // The 'num_threads' was specified with less dimensions. The number of
+      // dimensions indicated in this clause has priority over 'thread_limit'.
+      if (!NumThreadsVals.empty() && Idx >= NumThreadsVals.size())
+        break;
+
+      Value *TeamsThreadLimitC = InitMaxThreadsClause(TeamsVal);
+      Value *TargetThreadLimitC = InitMaxThreadsClause(TargetVal);
+      Value *NumThreadsC = InitMaxThreadsClause(
+          !NumThreadsVals.empty() ? NumThreadsVals[Idx] : nullptr);
+
+      CombineMaxThreadsClauses(TeamsThreadLimitC, TargetThreadLimitC);
+      CombineMaxThreadsClauses(TargetThreadLimitC, NumThreadsC);
+
+      NumThreads.push_back(NumThreadsC ? NumThreadsC : Builder.getInt32(0));
     }
 
     unsigned NumTargetItems = Info.NumberOfPtrs;
@@ -9301,7 +9307,7 @@ static void emitTargetCall(
       DynCGroupMem = Builder.getInt32(0);
 
     KArgs = OpenMPIRBuilder::TargetKernelArgs(
-        NumTargetItems, RTArgs, TripCount, NumTeamsC, NumThreadsC, DynCGroupMem,
+        NumTargetItems, RTArgs, TripCount, NumTeamsC, NumThreads, DynCGroupMem,
         HasNoWait, DynCGroupMemFallback);
 
     // Assume no error was returned because TaskBodyCB and

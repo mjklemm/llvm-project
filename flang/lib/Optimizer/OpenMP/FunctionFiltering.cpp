@@ -311,6 +311,7 @@ private:
       targetOp.setDependKindsAttr(nullptr);
       targetOp.getDeviceMutable().clear();
       targetOp.getIfExprMutable().clear();
+      targetOp.getDynGroupprivateSizeMutable().clear();
 
       // TODO: Clear some of these operands rather than rewriting them,
       // depending on whether they are needed by device codegen once support for
