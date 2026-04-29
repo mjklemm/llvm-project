@@ -434,27 +434,27 @@ int omp_get_num_threads(void) {
 }
 
 int omp_get_num_threads_dim(int Dim) {
-  if (Dim == 0 || Dim > 3)
+  if (Dim < 0 || Dim >= 3)
     return 1;
-  return omp_get_level() != 1 ? 1 : state::getEffectivePTeamSize(Dim-1);
+  return omp_get_level() != 1 ? 1 : state::getEffectivePTeamSize(Dim);
 }
 
 int omp_get_thread_num_dim(int Dim) {
-  if (Dim == 0 || Dim > 3)
+  if (Dim < 0 || Dim >= 3)
     return 0;
-  return returnValIfLevelIsActive(omp_get_level(), mapping::getThreadIdInBlock(Dim-1), 0);
+  return returnValIfLevelIsActive(omp_get_level(), mapping::getThreadIdInBlock(Dim), 0);
 }
 
 int omp_get_team_num_dim(int Dim) {
-  if (Dim == 0 || Dim > 3)
+  if (Dim < 0 || Dim >= 3)
     return 0;
-  return mapping::getBlockIdInKernel(Dim-1);
+  return mapping::getBlockIdInKernel(Dim);
 }
 
 int omp_get_num_teams_dim(int Dim) {
-  if (Dim == 0 || Dim > 3)
+  if (Dim < 0 || Dim >= 3)
     return 1;
-  return mapping::getNumberOfBlocksInKernel(Dim-1);
+  return mapping::getNumberOfBlocksInKernel(Dim);
 }
 
 int omp_get_thread_limit(void) { return mapping::getMaxTeamThreads(); }
