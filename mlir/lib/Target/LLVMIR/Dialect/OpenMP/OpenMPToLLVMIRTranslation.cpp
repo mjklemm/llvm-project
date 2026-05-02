@@ -6464,8 +6464,13 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
     setMaxValueFromClause(limitVar, teamsThreadLimitVals[i]);
 
   // Extract 'num_threads' clause from 'parallel' or set to 1 if it's SIMD.
+  // When 'num_threads' is present but provides fewer values than the kernel
+  // rank ('numDims'), the unspecified trailing dimensions are implicitly 1
+  // so they must not inherit from 'thread_limit' in the combine step below.
   llvm::SmallVector<int32_t, 3> maxThreadsVals(numDims, -1);
   if (castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
+    if (!numThreadsVars.empty())
+      std::fill(maxThreadsVals.begin(), maxThreadsVals.end(), 1);
     for (auto [i, threadsVar] : llvm::enumerate(numThreadsVars))
       setMaxValueFromClause(threadsVar, maxThreadsVals[i]);
   } else if (castOrGetParentOfType<omp::SimdOp>(capturedOp,
@@ -6585,14 +6590,7 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
                     });
   }
 
-  // Ensure TargetThreadLimit and TeamsThreadLimit have matching sizes
-  // for zip_equal in OMPIRBuilder.
-  size_t maxDims =
-      std::max(attrs.TargetThreadLimit.size(), attrs.TeamsThreadLimit.size());
-  attrs.TargetThreadLimit.resize(maxDims);
-  attrs.TeamsThreadLimit.resize(maxDims);
-
-  // Handle multi-dimensional num_threads (only first value for now)
+  // Handle multi-dimensional num_threads.
   if (!numThreadsVars.empty()) {
     attrs.MaxThreads.clear();
     llvm::transform(numThreadsVars, std::back_inserter(attrs.MaxThreads),
@@ -6602,6 +6600,20 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
                                           builder.getInt32Ty())
                                     : nullptr;
                     });
+  }
+
+  // Ensure TargetThreadLimit, TeamsThreadLimit and MaxThreads have matching
+  // sizes for zip_equal in OMPIRBuilder. When 'num_threads' was specified but
+  // with fewer dimensions than the kernel rank, the unspecified trailing dims
+  // default to i32 1.
+  size_t maxDims = std::max({attrs.TargetThreadLimit.size(),
+                             attrs.TeamsThreadLimit.size(),
+                             attrs.MaxThreads.size()});
+  attrs.TargetThreadLimit.resize(maxDims);
+  attrs.TeamsThreadLimit.resize(maxDims);
+  if (!numThreadsVars.empty() && attrs.MaxThreads.size() < maxDims) {
+    llvm::Value *one = builder.getInt32(1);
+    attrs.MaxThreads.append(maxDims - attrs.MaxThreads.size(), one);
   }
 
   if (omp::bitEnumContainsAny(targetOp.getKernelExecFlags(capturedOp),
