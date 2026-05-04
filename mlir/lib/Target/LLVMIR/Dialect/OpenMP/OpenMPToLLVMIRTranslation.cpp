@@ -6456,16 +6456,30 @@ initTargetDefaultAttrs(omp::TargetOp targetOp, Operation *capturedOp,
   size_t numDims =
       std::max({numTargetDims, numTeamsDims, numParallelDims, size_t(1)});
 
-  llvm::SmallVector<int32_t, 3> targetThreadLimitVals(numDims, -1);
-  llvm::SmallVector<int32_t, 3> teamsThreadLimitVals(numDims, -1);
+  // For a clause specified with fewer values than the kernel rank
+  // ('numDims'), the unspecified trailing dimensions are implicitly 1 (no
+  // parallelism in those dims) -- not "unset" -- so they must constrain the
+  // per-dim min in the combine step below. The init sentinel is therefore:
+  //   * -1  if the clause is not specified at all (means "unset")
+  //   *  1  if the clause is specified but possibly shorter than numDims
+  // Apply this rule symmetrically to all three clauses.
+  auto initSentinel = [](bool isSpecified) -> int32_t {
+    return isSpecified ? 1 : -1;
+  };
+  llvm::SmallVector<int32_t, 3> targetThreadLimitVals(
+      numDims, initSentinel(!targetOp.getThreadLimitVars().empty()));
+  llvm::SmallVector<int32_t, 3> teamsThreadLimitVals(
+      numDims, initSentinel(!threadLimitVars.empty()));
   for (auto [i, limitVar] : llvm::enumerate(targetOp.getThreadLimitVars()))
     setMaxValueFromClause(limitVar, targetThreadLimitVals[i]);
   for (auto [i, limitVar] : llvm::enumerate(threadLimitVars))
     setMaxValueFromClause(limitVar, teamsThreadLimitVals[i]);
 
   // Extract 'num_threads' clause from 'parallel' or set to 1 if it's SIMD.
-  llvm::SmallVector<int32_t, 3> maxThreadsVals(numDims, -1);
-  if (castOrGetParentOfType<omp::ParallelOp>(capturedOp)) {
+  auto parallelOp = castOrGetParentOfType<omp::ParallelOp>(capturedOp);
+  llvm::SmallVector<int32_t, 3> maxThreadsVals(
+      numDims, initSentinel(parallelOp && !numThreadsVars.empty()));
+  if (parallelOp) {
     for (auto [i, threadsVar] : llvm::enumerate(numThreadsVars))
       setMaxValueFromClause(threadsVar, maxThreadsVals[i]);
   } else if (castOrGetParentOfType<omp::SimdOp>(capturedOp,
@@ -6585,14 +6599,7 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
                     });
   }
 
-  // Ensure TargetThreadLimit and TeamsThreadLimit have matching sizes
-  // for zip_equal in OMPIRBuilder.
-  size_t maxDims =
-      std::max(attrs.TargetThreadLimit.size(), attrs.TeamsThreadLimit.size());
-  attrs.TargetThreadLimit.resize(maxDims);
-  attrs.TeamsThreadLimit.resize(maxDims);
-
-  // Handle multi-dimensional num_threads (only first value for now)
+  // Handle multi-dimensional num_threads.
   if (!numThreadsVars.empty()) {
     attrs.MaxThreads.clear();
     llvm::transform(numThreadsVars, std::back_inserter(attrs.MaxThreads),
@@ -6603,6 +6610,32 @@ initTargetRuntimeAttrs(llvm::IRBuilderBase &builder,
                                     : nullptr;
                     });
   }
+
+  // Ensure TargetThreadLimit, TeamsThreadLimit and MaxThreads have matching
+  // sizes for zip_equal in OMPIRBuilder. Apply the symmetric semantics
+  // matched in initTargetDefaultAttrs:
+  //   * If a clause is specified but with fewer dims than the kernel rank,
+  //     the unspecified trailing dims default to i32 1 (implicit "1 thread
+  //     in that dim" / "no parallelism").
+  //   * If a clause is not specified at all, the trailing slots stay
+  //     nullptr so OMPIRBuilder treats them as "no constraint".
+  size_t maxDims = std::max({attrs.TargetThreadLimit.size(),
+                             attrs.TeamsThreadLimit.size(),
+                             attrs.MaxThreads.size()});
+  llvm::Value *one = builder.getInt32(1);
+  auto padTrailingDims = [&](llvm::SmallVectorImpl<llvm::Value *> &vec,
+                             bool isSpecified) {
+    if (vec.size() >= maxDims)
+      return;
+    if (isSpecified)
+      vec.append(maxDims - vec.size(), one);
+    else
+      vec.resize(maxDims);
+  };
+  padTrailingDims(attrs.TargetThreadLimit,
+                  !targetOp.getThreadLimitVars().empty());
+  padTrailingDims(attrs.TeamsThreadLimit, !teamsThreadLimitVars.empty());
+  padTrailingDims(attrs.MaxThreads, !numThreadsVars.empty());
 
   if (omp::bitEnumContainsAny(targetOp.getKernelExecFlags(capturedOp),
                               omp::TargetRegionFlags::trip_count)) {
