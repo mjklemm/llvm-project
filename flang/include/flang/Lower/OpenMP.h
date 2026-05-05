@@ -13,6 +13,7 @@
 #ifndef FORTRAN_LOWER_OPENMP_H
 #define FORTRAN_LOWER_OPENMP_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cinttypes>
@@ -62,6 +63,16 @@ struct OMPDeferredDeclareTargetInfo {
   const Fortran::semantics::Symbol &sym;
 };
 
+/// Per-converter table that records the `device_type` modifier associated with
+/// each groupprivate symbol on the `!$omp groupprivate` directive that
+/// declared it. Populated when the directive is lowered and consumed when
+/// `omp.groupprivate` operations are emitted inside teams regions.
+struct OMPGroupprivateDeviceTypeInfo {
+  llvm::DenseMap<const Fortran::semantics::Symbol *,
+                 mlir::omp::DeclareTargetDeviceType>
+      map;
+};
+
 // Generate the OpenMP terminator for Operation at Location.
 mlir::Operation *genOpenMPTerminator(fir::FirOpBuilder &, mlir::Operation *,
                                      mlir::Location);
@@ -82,6 +93,7 @@ void genOpenMPSymbolProperties(AbstractConverter &converter,
                                const pft::Variable &var);
 
 void genThreadprivateOp(AbstractConverter &, const pft::Variable &);
+void genGroupprivateOp(AbstractConverter &, const pft::Variable &);
 void genGroupprivateOp(AbstractConverter &, const pft::Variable &);
 void genDeclareTargetIntGlobal(AbstractConverter &, const pft::Variable &);
 bool isOpenMPTargetConstruct(const parser::OpenMPConstruct &);

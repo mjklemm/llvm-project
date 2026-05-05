@@ -859,6 +859,26 @@ bool ClauseProcessor::processDynGroupprivate(
     lower::StatementContext &stmtCtx,
     mlir::omp::DynGroupprivateClauseOps &result) const {
   using DynGroupprivate = omp::clause::DynGroupprivate;
+
+  // OpenMP 6.1 allows the `dyn_groupprivate` clause to appear more than once
+  // on the same construct (with distinct access-group modifiers). Semantics
+  // already rejects two clauses sharing the same access-group, but multiple
+  // clauses with different access-groups are spec-legal. The current MLIR
+  // representation (`mlir::omp::DynGroupprivateClauseOps`) and the OMPIRBuilder
+  // only support a single set of modifiers + size, so reject the multi-clause
+  // form up-front.
+  unsigned count = 0;
+  parser::CharBlock duplicateSource;
+  findRepeatableClause<DynGroupprivate>(
+      [&](const DynGroupprivate &, const parser::CharBlock &source) {
+        if (++count == 2)
+          duplicateSource = source;
+      });
+  if (count > 1) {
+    TODO(converter.genLocation(duplicateSource),
+         "multiple dyn_groupprivate clauses on the same construct");
+  }
+
   if (auto *clause = findUniqueClause<DynGroupprivate>()) {
     fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
     mlir::MLIRContext *context = firOpBuilder.getContext();
@@ -868,16 +888,17 @@ bool ClauseProcessor::processDynGroupprivate(
             std::get<std::optional<DynGroupprivate::AccessGroup>>(clause->t)) {
       switch (*accessGroup) {
       case DynGroupprivate::AccessGroup::Cgroup:
-        result.dynGroupprivateAccessGroup = mlir::omp::AccessGroupModifierAttr::get(
-          context, mlir::omp::AccessGroupModifier::cgroup);
+        result.dynGroupprivateAccessGroup =
+            mlir::omp::AccessGroupModifierAttr::get(
+                context, mlir::omp::AccessGroupModifier::cgroup);
         break;
       }
     }
 
     // Process Fallback modifier (abort, default_mem, null)
     if (auto fallback =
-      std::get<std::optional<DynGroupprivate::Fallback>>(clause->t)) {
-    switch (*fallback) {
+            std::get<std::optional<DynGroupprivate::Fallback>>(clause->t)) {
+      switch (*fallback) {
       case DynGroupprivate::Fallback::Abort:
         result.dynGroupprivateFallback = mlir::omp::FallbackModifierAttr::get(
             context, mlir::omp::FallbackModifier::abort);
