@@ -936,6 +936,18 @@ void OmpStructureChecker::Enter(const parser::OmpBlockConstruct &x) {
   const parser::Block &block{std::get<parser::Block>(x.t)};
   unsigned version{context_.langOptions().OpenMPVersion};
 
+  // The "teams parallel" and "target teams parallel" combined constructs
+  // were added in OpenMP 6.0; reject them on earlier versions.
+  llvm::omp::Directive beginDir{beginSpec.DirId()};
+  if ((beginDir == llvm::omp::Directive::OMPD_teams_parallel ||
+          beginDir == llvm::omp::Directive::OMPD_target_teams_parallel) &&
+      version < 60) {
+    context_.Say(beginSpec.DirName().source,
+        "%s is not allowed in OpenMP v%d.%d, requires OpenMP v6.0 or later"_err_en_US,
+        parser::omp::GetUpperName(beginDir, version), version / 10,
+        version % 10);
+  }
+
   PushContextAndClauseSets(beginSpec.DirName().source, beginSpec.DirId());
 
   // Missing mandatory end block: this is checked in semantics because that

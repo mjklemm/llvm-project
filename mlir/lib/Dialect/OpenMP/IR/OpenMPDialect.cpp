@@ -2572,6 +2572,15 @@ TargetRegionFlags TargetOp::getKernelExecFlags(Operation *capturedOp) {
           (targetOp && targetOp.getInnermostCapturedOmpOp() == capturedOp)) &&
          "unexpected captured op");
 
+  // Kernel-language pattern: target { teams { parallel { non-loop body } } }.
+  // Treat this as SPMD so host_eval values can drive num_threads of the inner
+  // parallel.
+  if (auto parallelOp = dyn_cast_or_null<ParallelOp>(capturedOp)) {
+    auto teamsOp = dyn_cast_or_null<TeamsOp>(parallelOp->getParentOp());
+    if (teamsOp && teamsOp->getParentOp() == targetOp.getOperation())
+      return TargetRegionFlags::spmd;
+  }
+
   // If it's not capturing a loop, it's a default target region.
   if (!isa_and_present<LoopNestOp>(capturedOp))
     return TargetRegionFlags::generic;
