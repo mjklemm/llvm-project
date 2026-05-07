@@ -2747,6 +2747,14 @@ TargetExecMode TargetOp::getKernelExecFlags(Operation *capturedOp,
   if (hostEvalTripCount)
     *hostEvalTripCount = false;
 
+  // Pattern: target { teams { parallel { non-loop body } } }. Treat this as
+  // SPMD so host_eval values can drive num_threads of the inner parallel.
+  if (auto parallelOp = dyn_cast_or_null<ParallelOp>(capturedOp)) {
+    auto teamsOp = dyn_cast_or_null<TeamsOp>(parallelOp->getParentOp());
+    if (teamsOp && teamsOp->getParentOp() == targetOp.getOperation())
+      return TargetExecMode::spmd;
+  }
+
   // If it's not capturing a loop, it's a default target region.
   if (!isa_and_present<LoopNestOp>(capturedOp))
     return TargetExecMode::generic;
