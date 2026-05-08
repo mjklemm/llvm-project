@@ -542,9 +542,9 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       break;
 
     case OMPD_teams_parallel:
-      cp.processThreadLimit(stmtCtx, hostInfo->ops);
       [[fallthrough]];
     case OMPD_target_teams_parallel:
+      cp.processThreadLimit(stmtCtx, hostInfo->ops);
       cp.processNumTeams(stmtCtx, hostInfo->ops);
       cp.processNumThreads(stmtCtx, hostInfo->ops);
       break;
