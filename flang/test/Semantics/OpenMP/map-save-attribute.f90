@@ -113,6 +113,35 @@ contains
   end
 end module
 
+subroutine common_block_member
+  integer :: cv
+  common /cb/ cv
+!WARNING: Variable 'cv' is a member of a COMMON block and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
+  !$omp target map(tofrom: cv)
+  cv = cv + 1
+  !$omp end target
+end
+
+subroutine common_block_member_always
+  integer :: cv
+  common /cb/ cv
+  !$omp target map(always, tofrom: cv)
+  cv = cv + 1
+  !$omp end target
+end
+
+subroutine common_block_with_save
+  ! A COMMON block with an explicit SAVE attribute promotes each member's
+  ! SAVE-ness, so the SAVE-worded warning is emitted.
+  integer :: cv
+  common /cbs/ cv
+  save /cbs/
+!WARNING: Variable 'cv' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
+  !$omp target map(tofrom: cv)
+  cv = cv + 1
+  !$omp end target
+end
+
 subroutine component_dedup
   type :: t
     integer :: a

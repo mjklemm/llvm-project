@@ -4882,14 +4882,27 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
         continue;
       }
       const Symbol &ultimate{baseSym->GetUltimate()};
-      if (!IsSaved(ultimate) || !warnedBases.insert(&ultimate).second) {
+      // COMMON block members have static storage that persists across target
+      // regions just like SAVEd variables, so the same reference-counted map
+      // concern applies.
+      bool isSaved{IsSaved(ultimate)};
+      bool inCommon{
+          !isSaved && semantics::FindCommonBlockContaining(ultimate) != nullptr};
+      if ((!isSaved && !inCommon) || !warnedBases.insert(&ultimate).second) {
         continue;
       }
       auto maybeSource{GetObjectSource(object)};
-      context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
-          maybeSource.value_or(GetContext().clauseSource),
-          "Variable '%s' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device"_warn_en_US,
-          ultimate.name());
+      if (isSaved) {
+        context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
+            maybeSource.value_or(GetContext().clauseSource),
+            "Variable '%s' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device"_warn_en_US,
+            ultimate.name());
+      } else {
+        context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
+            maybeSource.value_or(GetContext().clauseSource),
+            "Variable '%s' is a member of a COMMON block and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device"_warn_en_US,
+            ultimate.name());
+      }
     }
   }
 
