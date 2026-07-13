@@ -4847,7 +4847,7 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
   }
 
   // Warn if a variable with implicit or explicit SAVE attribute is mapped
-  // without the ALWAYS map modifier. As per OpenMP specificaiton,
+  // without the ALWAYS map modifier. As per OpenMP specification,
   // reference-counted map semantics mean subsequent target regions may skip
   // data transfer for those variables.
   bool hasAlwaysModifier{
