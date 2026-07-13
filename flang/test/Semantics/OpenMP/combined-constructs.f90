@@ -47,6 +47,7 @@ program main
   enddo
   !$omp end target parallel
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target parallel map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -94,6 +95,7 @@ program main
   enddo
   !$omp end target parallel do
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target parallel do map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -108,6 +110,7 @@ program main
   enddo
   !$omp end target parallel do
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams map(a)
   do i = 1, N
      a(i) = 3.14d0
@@ -201,6 +204,7 @@ program main
   enddo
   !$omp end target teams
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -208,6 +212,7 @@ program main
   !$omp end target teams
 
   !ERROR: Only the ALLOC, FROM, TO, TOFROM map types are permitted for MAP clauses on the TARGET TEAMS directive
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams map(delete:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -215,6 +220,7 @@ program main
   !$omp end target teams
 
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute map(a)
   do i = 1, N
      a(i) = 3.14d0
@@ -301,6 +307,7 @@ program main
   enddo
   !$omp end target teams distribute
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -308,6 +315,7 @@ program main
   !$omp end target teams distribute
 
   !ERROR: Only the ALLOC, FROM, TO, TOFROM map types are permitted for MAP clauses on the TARGET TEAMS DISTRIBUTE directive
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute map(delete:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -394,6 +402,7 @@ program main
   enddo
   !$omp end target teams distribute parallel do
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute parallel do map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -401,6 +410,7 @@ program main
   !$omp end target teams distribute parallel do
 
   !ERROR: Only the ALLOC, FROM, TO, TOFROM map types are permitted for MAP clauses on the TARGET TEAMS DISTRIBUTE PARALLEL DO directive
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute parallel do map(delete:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -408,6 +418,7 @@ program main
   !$omp end target teams distribute parallel do
 
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute parallel do simd map(a)
   do i = 1, N
      a(i) = 3.14d0
@@ -494,6 +505,7 @@ program main
   enddo
   !$omp end target teams distribute parallel do simd
 
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute parallel do simd map(tofrom:a)
   do i = 1, N
      a(i) = 3.14d0
@@ -501,6 +513,7 @@ program main
   !$omp end target teams distribute parallel do simd
 
   !ERROR: Only the ALLOC, FROM, TO, TOFROM map types are permitted for MAP clauses on the TARGET TEAMS DISTRIBUTE PARALLEL DO SIMD directive
+  !WARNING: Variable 'a' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
   !$omp target teams distribute parallel do simd map(delete:a)
   do i = 1, N
      a(i) = 3.14d0

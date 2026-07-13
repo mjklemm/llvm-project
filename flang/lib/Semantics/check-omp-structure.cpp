@@ -4846,6 +4846,37 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
     }
   }
 
+  // Warn if a variable with implicit or explicit SAVE attribute is mapped
+  // without the ALWAYS map modifier. As per OpenMP specificaiton,
+  // reference-counted map semantics mean subsequent target regions may skip
+  // data transfer for those variables.
+  bool hasAlwaysModifier{
+      OmpGetUniqueModifier<parser::OmpAlwaysModifier>(modifiers) != nullptr};
+  if (!hasAlwaysModifier) {
+    // The ALWAYS modifier may have been canonicalized into an
+    // OmpMapTypeModifier with value Always (see canonicalize-omp.cpp).
+    for (auto *typeMod :
+        OmpGetRepeatableModifier<parser::OmpMapTypeModifier>(modifiers)) {
+      if (typeMod->v == parser::OmpMapTypeModifier::Value::Always) {
+        hasAlwaysModifier = true;
+        break;
+      }
+    }
+  }
+  if (!hasAlwaysModifier) {
+    for (const parser::OmpObject &object : objects.v) {
+      if (const Symbol *sym{GetObjectSymbol(object, /*ultimate=*/true)}) {
+        if (IsSaved(*sym)) {
+          auto maybeSource{GetObjectSource(object)};
+          context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
+              maybeSource.value_or(GetContext().clauseSource),
+              "Variable '%s' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions"_warn_en_US,
+              sym->name());
+        }
+      }
+    }
+  }
+
   // If we are an enter or exit map, iterate over the maps and add them to
   // containers that track if the symbol has been referenced in both an
   // enter/exit map in the current scope, if it falls into the category of
