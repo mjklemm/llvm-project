@@ -12,7 +12,7 @@ program main
   arrayB = 3.14d0
   N = 256
 
-  !WARNING: Variable 'arraya' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions [-Wopenmp-map-save-without-always]
+  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target map(arrayA)
   do i = 1, N
      a = 3.14d0

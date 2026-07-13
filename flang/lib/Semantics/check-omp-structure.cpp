@@ -4846,10 +4846,11 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
     }
   }
 
-  // Warn if a variable with implicit or explicit SAVE attribute is mapped
-  // without the ALWAYS map modifier. As per OpenMP specification,
-  // reference-counted map semantics mean subsequent target regions may skip
-  // data transfer for those variables.
+  // Warn if a variable with implicit or explicit SAVE attribute appears in a
+  // map clause without the ALWAYS modifier. Under OpenMP's reference-
+  // counted map semantics, the map operation for such a variable may be
+  // skipped if it is already present on the device, unless ALWAYS is
+  // specified.
   bool hasAlwaysModifier{
       OmpGetUniqueModifier<parser::OmpAlwaysModifier>(modifiers) != nullptr};
   if (!hasAlwaysModifier) {
@@ -4864,16 +4865,31 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
     }
   }
   if (!hasAlwaysModifier) {
+    // Track base symbols already warned about within this clause so that a
+    // list item and one of its components (e.g. `map(x, x%y)`) yield only one
+    // diagnostic per base variable.
+    llvm::SmallPtrSet<const Symbol *, 4> warnedBases;
     for (const parser::OmpObject &object : objects.v) {
-      if (const Symbol *sym{GetObjectSymbol(object, /*ultimate=*/true)}) {
-        if (IsSaved(*sym)) {
-          auto maybeSource{GetObjectSource(object)};
-          context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
-              maybeSource.value_or(GetContext().clauseSource),
-              "Variable '%s' has the SAVE attribute and is mapped without the ALWAYS map modifier; the host value may not be synchronized with the device on subsequent target regions"_warn_en_US,
-              sym->name());
-        }
+      const Symbol *baseSym{nullptr};
+      if (const parser::Designator *d{GetDesignatorFromObj(object)}) {
+        // For designators (including component references and subscripts),
+        // use the leftmost name so that `x%y` is treated as `x`.
+        baseSym = parser::GetFirstName(*d).symbol;
+      } else {
+        baseSym = GetObjectSymbol(object);
       }
+      if (!baseSym) {
+        continue;
+      }
+      const Symbol &ultimate{baseSym->GetUltimate()};
+      if (!IsSaved(ultimate) || !warnedBases.insert(&ultimate).second) {
+        continue;
+      }
+      auto maybeSource{GetObjectSource(object)};
+      context_.Warn(common::UsageWarning::OpenMPMapSaveWithoutAlways,
+          maybeSource.value_or(GetContext().clauseSource),
+          "Variable '%s' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device"_warn_en_US,
+          ultimate.name());
     }
   }
 
