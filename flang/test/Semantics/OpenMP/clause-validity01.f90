@@ -85,7 +85,6 @@ use omp_lib
   !$omp end target
 
   !ERROR: ALLOCATE clause is not allowed on TARGET DATA directive
-  !WARNING: Variable 'b' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target data map(from: b) allocate(b)
   do i = 1, N
      z = 2

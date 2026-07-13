@@ -48,22 +48,16 @@ program main
   !$omp end target
 
   ! Also accepted on target data and its data motion variants.
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target data map(to: arrayA) device(omp_initial_device)
   !$omp end target data
 
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target data map(to: arrayA) device(omp_invalid_device)
   !$omp end target data
 
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target enter data map(alloc: arrayA) device(omp_initial_device)
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target enter data map(alloc: arrayA) device(omp_invalid_device)
 
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target exit data map(delete: arrayA) device(omp_initial_device)
-  !WARNING: Variable 'arraya' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target exit data map(delete: arrayA) device(omp_invalid_device)
 
   !$omp target update to(arrayA) device(omp_initial_device)

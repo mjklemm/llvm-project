@@ -4884,11 +4884,19 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
       const Symbol &ultimate{baseSym->GetUltimate()};
       // COMMON block members have static storage that persists across target
       // regions just like SAVEd variables, so the same reference-counted map
-      // concern applies.
+      // concern applies. However, the persistence only matters if the variable
+      // is DECLARE TARGET'd (or belongs to a DECLARE TARGET'd COMMON block),
+      // because that is what makes its device instance persist across regions.
       bool isSaved{IsSaved(ultimate)};
-      bool inCommon{
-          !isSaved && semantics::FindCommonBlockContaining(ultimate) != nullptr};
-      if ((!isSaved && !inCommon) || !warnedBases.insert(&ultimate).second) {
+      const Symbol *commonBlock{semantics::FindCommonBlockContaining(ultimate)};
+      bool inCommon{!isSaved && commonBlock != nullptr};
+      if (!isSaved && !inCommon) {
+        continue;
+      }
+      bool isDeclareTarget{ultimate.test(Symbol::Flag::OmpDeclareTarget) ||
+          (commonBlock &&
+              commonBlock->test(Symbol::Flag::OmpDeclareTarget))};
+      if (!isDeclareTarget || !warnedBases.insert(&ultimate).second) {
         continue;
       }
       auto maybeSource{GetObjectSource(object)};

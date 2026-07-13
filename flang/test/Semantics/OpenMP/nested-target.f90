@@ -41,13 +41,11 @@ program main
   allocate(B(N))
   !$omp target
   !PORTABILITY: If TARGET ENTER DATA directive is nested inside TARGET region, the behaviour is unspecified [-Wopenmp-usage]
-  !WARNING: Variable 'b' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target enter data map(alloc:B)
   !$omp end target
 
   !$omp target
   !PORTABILITY: If TARGET EXIT DATA directive is nested inside TARGET region, the behaviour is unspecified [-Wopenmp-usage]
-  !WARNING: Variable 'b' has the SAVE attribute and appears in a MAP clause without the ALWAYS modifier; the map operation may be skipped when the variable is already present on the device [-Wopenmp-map-save-without-always]
   !$omp target exit data map(delete:B)
   !$omp end target
   deallocate(B)
