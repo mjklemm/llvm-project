@@ -4894,8 +4894,7 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Map &x) {
         continue;
       }
       bool isDeclareTarget{ultimate.test(Symbol::Flag::OmpDeclareTarget) ||
-          (commonBlock &&
-              commonBlock->test(Symbol::Flag::OmpDeclareTarget))};
+          (commonBlock && commonBlock->test(Symbol::Flag::OmpDeclareTarget))};
       if (!isDeclareTarget || !warnedBases.insert(&ultimate).second) {
         continue;
       }
